@@ -5,8 +5,9 @@ RUN apt-get update && apt-get install -y \
     && rm -rf /var/lib/apt/lists/*
 
 WORKDIR /app
-COPY requirements.txt .
+COPY backend/requirements.txt .
 RUN pip install --no-cache-dir -r requirements.txt
-COPY cc_remote.py .
+COPY backend/cc_remote.py .
+
 EXPOSE 5001
 CMD ["python", "cc_remote.py"]

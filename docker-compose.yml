@@ -3,7 +3,9 @@ services:
   # Backend: Stream Manager + Recording
   # ──────────────────────────────────────────────
   backend:
-    build: ./backend
+    build:
+      context: .
+      dockerfile: Dockerfile
     network_mode: host
     devices:
       - /dev/video0:/dev/video0
@@ -38,7 +40,7 @@ services:
   # ──────────────────────────────────────────────
   cc-remote:
     build:
-      context: ./backend
+      context: .
       dockerfile: Dockerfile.cc
     network_mode: host
     environment:
