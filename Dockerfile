@@ -8,7 +8,7 @@ WORKDIR /app
 COPY requirements.txt .
 RUN pip install --no-cache-dir -r requirements.txt
 COPY app.py cc_remote.py ./
-COPY web/ /usr/share/nginx/html/
+COPY web/ /app/web/
 
-EXPOSE 5000 5001
+EXPOSE 5000 8964
 CMD ["python", "app.py"]
