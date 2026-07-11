@@ -1,6 +1,6 @@
 services:
   # ──────────────────────────────────────────────
-  # Backend: Stream Manager + ADB Remote + Recording
+  # Backend: Stream Manager + Recording
   # ──────────────────────────────────────────────
   backend:
     build:
@@ -13,14 +13,10 @@ services:
     volumes:
       - /tmp/hls:/tmp/hls
       - ./recordings:/recordings
-      - ./backend:/app
-      - /var/run/dbus:/var/run/dbus:ro
     environment:
       - STREAM_DIR=/tmp/hls
       - RECORD_DIR=/recordings
-      - CC_HOST=192.168.0.18
       - FLASK_ENV=production
-      - ADB_PORT=5555
     restart: unless-stopped
     stop_grace_period: 10s
 

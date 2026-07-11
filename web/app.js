@@ -8,10 +8,8 @@ let streamUrl = '';
 // ─── Tab Navigation ───
 document.querySelectorAll('.nav-tab').forEach(tab => {
   tab.addEventListener('click', () => {
-    // Update tabs
     document.querySelectorAll('.nav-tab').forEach(t => t.classList.remove('active'));
     tab.classList.add('active');
-    // Update content
     document.querySelectorAll('.tab-content').forEach(c => c.classList.remove('active'));
     const target = document.getElementById(`tab-${tab.dataset.tab}`);
     if (target) target.classList.add('active');
@@ -20,10 +18,7 @@ document.querySelectorAll('.nav-tab').forEach(tab => {
 
 // ─── API Helper ───
 async function api(method, path, body = null) {
-  const opts = {
-    method,
-    headers: { 'Content-Type': 'application/json' },
-  };
+  const opts = { method, headers: { 'Content-Type': 'application/json' } };
   if (body) opts.body = JSON.stringify(body);
   try {
     const r = await fetch(`${API_BASE}${path}`, opts);
@@ -48,15 +43,8 @@ function toast(msg, type = '') {
 function initPlayer(videoId, url) {
   const video = document.getElementById(videoId);
   if (!video) return;
-  
-  // Destroy existing
-  if (hlsPlayers[videoId]) {
-    hlsPlayers[videoId].destroy();
-    delete hlsPlayers[videoId];
-  }
-  
+  if (hlsPlayers[videoId]) { hlsPlayers[videoId].destroy(); delete hlsPlayers[videoId]; }
   if (!url) return;
-  
   if (Hls.isSupported()) {
     const hls = new Hls({ liveDurationInfinity: true, lowLatencyMode: true });
     hls.loadSource(url);
@@ -73,22 +61,14 @@ function initPlayer(videoId, url) {
 async function loadStatus() {
   const data = await api('GET', '/stream/status');
   if (data.status !== 'ok') return;
-
   const running = data.running;
   const el = document.getElementById('streamRunning');
   el.textContent = running ? '🔴 LIVE' : 'Offline';
   el.className = `badge ${running ? 'badge-on' : 'badge-off'}`;
-
   document.getElementById('hlsReady').textContent = data.hls_ready ? '✅ Yes' : '❌ No';
   document.getElementById('hlsReady').className = `badge ${data.hls_ready ? 'badge-on' : 'badge-off'}`;
-  
   document.getElementById('currentPreset').textContent = data.current_preset || 'custom';
-
-  // Stream dot
-  const dot = document.getElementById('streamDot');
-  dot.className = `dot ${running ? 'online' : 'offline'}`;
-
-  // Set radio
+  document.getElementById('streamDot').className = `dot ${running ? 'online' : 'offline'}`;
   if (data.current_preset) {
     const radio = document.querySelector(`input[name="preset"][value="${data.current_preset}"]`);
     if (radio) radio.checked = true;
@@ -114,6 +94,14 @@ async function loadChannels() {
 async function loadCCStatus() {
   const data = await api('GET', '/cc/status');
   const el = document.getElementById('ccConnected');
+  if (!el) return;
+  // CC remote not deployed → hide the row
+  if (data.cc_available === false || data.message === 'CC Remote service not deployed') {
+    // Check if there's a parent stat-row to hide
+    const row = el.closest('.stat-row');
+    if (row) row.style.display = 'none';
+    return;
+  }
   if (data.status === 'ok' && data.connected) {
     el.textContent = `✅ ${data.host}`;
     el.className = 'badge badge-on';
@@ -124,20 +112,12 @@ async function loadCCStatus() {
 }
 
 async function loadStreamUrl() {
-  // Determine base URL
   const base = window.location.host;
-  const url = `http://${base}/hls/stream.m3u8`;
-  streamUrl = url;
-  document.getElementById('streamUrl').textContent = url;
-  
-  // Update players
-  initPlayer('playerVideo', url);
-  
-  // Check if expand player is visible
-  const expandVideo = document.getElementById('expandVideo');
-  if (expandVideo && !expandVideo.src) {
-    initPlayer('expandVideo', url);
-  }
+  streamUrl = `http://${base}/hls/stream.m3u8`;
+  document.getElementById('streamUrl').textContent = streamUrl;
+  initPlayer('playerVideo', streamUrl);
+  const ev = document.getElementById('expandVideo');
+  if (ev && !ev.src) initPlayer('expandVideo', streamUrl);
 }
 
 // ─── Buttons: Stream ───
@@ -147,13 +127,11 @@ document.getElementById('btnStreamStart').addEventListener('click', async () => 
   loadStatus();
   setTimeout(loadStreamUrl, 1000);
 });
-
 document.getElementById('btnStreamStop').addEventListener('click', async () => {
   const r = await api('POST', '/stream/stop');
   toast(r.message, r.status === 'ok' ? 'success' : 'error');
   loadStatus();
 });
-
 document.getElementById('btnStreamRestart').addEventListener('click', async () => {
   const r = await api('POST', '/stream/restart');
   toast(r.message, 'success');
@@ -177,20 +155,14 @@ document.getElementById('btnChannelApply').addEventListener('click', async () =>
   const teamsUrl = document.getElementById('teamsUrl').value;
   const teamsKey = document.getElementById('teamsKey').value;
   const tgUrl = document.getElementById('tgUrl').value;
-
-  // HLS
   await api('PUT', '/channel/hls', { enabled: hls });
-  // Teams
   await api('PUT', '/channel/teams', { enabled: teams, rtmp_url: teamsUrl, rtmp_key: teamsKey });
-  // Telegram
   await api('PUT', '/channel/telegram', { enabled: tg, rtmp_url: tgUrl });
-
   toast('Channels updated', 'success');
   loadChannels();
   loadStatus();
 });
 
-// Show RTMP config fields when Teams/TG checked
 document.getElementById('ch-teams').addEventListener('change', toggleChannelConfig);
 document.getElementById('ch-telegram').addEventListener('change', toggleChannelConfig);
 function toggleChannelConfig() {
@@ -198,35 +170,25 @@ function toggleChannelConfig() {
   document.getElementById('channelConfig').style.display = show ? 'block' : 'none';
 }
 
-// ─── Remote Control ───
+// ─── Remote Control（CC remote optional — missing API returns gracefully）───
 
-// Connect CC
-async function connectCC() {
+// Try connect on page load — no error if not deployed
+setTimeout(async () => {
   const r = await api('POST', '/cc/connect', {});
-  toast(r.message, r.status === 'ok' ? 'success' : 'error');
-  loadCCStatus();
-}
-// Try connect on page load
-setTimeout(connectCC, 1000);
+  if (r.status === 'ok') toast('Chromecast connected!', 'success');
+}, 1000);
 
 // D-Pad
 document.querySelectorAll('.btn-dpad').forEach(btn => {
-  btn.addEventListener('click', () => {
-    const key = btn.dataset.key;
-    api('POST', `/cc/nav/${key}`);
-  });
-  // Repeat on long press
+  btn.addEventListener('click', () => api('POST', `/cc/nav/${btn.dataset.key}`));
   let timer = null;
   btn.addEventListener('mousedown', () => timer = setInterval(() => api('POST', `/cc/nav/${btn.dataset.key}`), 150));
   btn.addEventListener('touchstart', (e) => { e.preventDefault(); timer = setInterval(() => api('POST', `/cc/nav/${btn.dataset.key}`), 150); });
   const clear = () => { if (timer) { clearInterval(timer); timer = null; }};
-  btn.addEventListener('mouseup', clear);
-  btn.addEventListener('mouseleave', clear);
-  btn.addEventListener('touchend', clear);
-  btn.addEventListener('touchcancel', clear);
+  btn.addEventListener('mouseup', clear); btn.addEventListener('mouseleave', clear);
+  btn.addEventListener('touchend', clear); btn.addEventListener('touchcancel', clear);
 });
 
-// Nav buttons
 document.querySelectorAll('.btn-nav').forEach(btn => {
   btn.addEventListener('click', () => api('POST', `/cc/nav/${btn.dataset.key}`));
 });
@@ -236,14 +198,9 @@ document.querySelectorAll('.btn-vol, .btn-vol-mute').forEach(btn => {
   btn.addEventListener('click', () => {
     const action = btn.dataset.vol;
     api('POST', `/cc/vol/${action}`);
-    // Visual feedback
-    if (action === 'up') {
-      const fill = document.getElementById('volFill');
-      fill.style.width = Math.min(100, parseInt(fill.style.width) + 10) + '%';
-    } else if (action === 'down') {
-      const fill = document.getElementById('volFill');
-      fill.style.width = Math.max(0, parseInt(fill.style.width) - 10) + '%';
-    }
+    const fill = document.getElementById('volFill');
+    if (action === 'up') fill.style.width = Math.min(100, parseInt(fill.style.width) + 10) + '%';
+    else if (action === 'down') fill.style.width = Math.max(0, parseInt(fill.style.width) - 10) + '%';
   });
 });
 
@@ -255,7 +212,7 @@ document.querySelectorAll('.btn-app').forEach(btn => {
   });
 });
 
-// Text input
+// Text
 document.getElementById('btnCcText').addEventListener('click', () => {
   const text = document.getElementById('ccTextInput').value;
   if (!text) return;
@@ -265,7 +222,6 @@ document.getElementById('btnCcText').addEventListener('click', () => {
 
 // Screenshot
 document.getElementById('btnScreenshot').addEventListener('click', async () => {
-  // Fetch as blob
   try {
     const r = await fetch(`${API_BASE}/cc/screenshot?_=${Date.now()}`);
     if (!r.ok) { toast('Screenshot failed', 'error'); return; }
@@ -275,16 +231,13 @@ document.getElementById('btnScreenshot').addEventListener('click', async () => {
     img.src = url;
     document.getElementById('screenPlaceholder').style.display = 'none';
     img.style.display = 'block';
-  } catch (e) {
-    toast('Screenshot error', 'error');
-  }
+  } catch (e) { toast('Screenshot error', 'error'); }
 });
 
-// Expand / Collapse screen
+// Expand / Collapse
 document.getElementById('btnExpandScreen').addEventListener('click', () => {
   document.getElementById('expandPreviewCard').style.display = 'block';
   document.getElementById('btnExpandScreen').textContent = '🔴 Live';
-  // Init expand player
   initPlayer('expandVideo', streamUrl);
 });
 document.getElementById('btnCollapseScreen').addEventListener('click', () => {
@@ -307,11 +260,10 @@ document.getElementById('btnFullscreen').addEventListener('click', () => {
   else if (v.webkitRequestFullscreen) v.webkitRequestFullscreen();
 });
 
-// QR Code (simple canvas)
+// QR Code
 function generateQR(text) {
   const container = document.getElementById('qrCode');
   container.innerHTML = '';
-  // Use Google Charts API for simple QR
   const img = document.createElement('img');
   img.src = `https://api.qrserver.com/v1/create-qr-code/?size=120x120&data=${encodeURIComponent(text)}`;
   img.alt = 'QR';
@@ -319,13 +271,7 @@ function generateQR(text) {
   img.style.height = '120px';
   container.appendChild(img);
 }
-// Generate QR when we have URL
-const qrCheck = setInterval(() => {
-  if (streamUrl) {
-    generateQR(streamUrl);
-    clearInterval(qrCheck);
-  }
-}, 500);
+const qrCheck = setInterval(() => { if (streamUrl) { generateQR(streamUrl); clearInterval(qrCheck); } }, 500);
 
 // ─── Recording ───
 document.getElementById('btnRecStart').addEventListener('click', async () => {
@@ -339,16 +285,13 @@ document.getElementById('btnRecStart').addEventListener('click', async () => {
   toast(r.message, r.status === 'ok' ? 'success' : 'error');
   loadRecStatus();
 });
-
 document.getElementById('btnRecStop').addEventListener('click', async () => {
   const r = await api('POST', '/record/stop');
   toast(r.message, r.status === 'ok' ? 'success' : 'error');
   loadRecStatus();
 });
-
-// Show/hide segment options
 document.getElementById('recMode').addEventListener('change', () => {
-  document.getElementById('segmentOpts').style.display = 
+  document.getElementById('segmentOpts').style.display =
     document.getElementById('recMode').value === 'segment' ? 'block' : 'none';
 });
 
@@ -358,59 +301,33 @@ async function loadRecStatus() {
   const el = document.getElementById('recStatus');
   el.textContent = data.running ? '🔴 Recording' : 'Idle';
   el.className = `badge ${data.running ? 'badge-on' : 'badge-off'}`;
-  document.getElementById('recDiskUsed').textContent = 
-    data.disk_used_mb ? `${Math.round(data.disk_used_mb)} MB` : '0 MB';
-
+  document.getElementById('recDiskUsed').textContent = data.disk_used_mb ? `${Math.round(data.disk_used_mb)} MB` : '0 MB';
   const list = document.getElementById('recFileList');
   if (!data.files || data.files.length === 0) {
     list.innerHTML = '<div class="file-empty">No recordings yet</div>';
   } else {
-    list.innerHTML = data.files.slice(0, 20).map(f => `
-      <div class="file-item">
-        <span class="file-name">${f.name}</span>
-        <span class="file-size">${f.size_mb}MB</span>
-        <a class="file-dl" href="/api/record/files/${encodeURIComponent(f.name)}" download title="Download">⬇</a>
-      </div>
-    `).join('');
+    list.innerHTML = data.files.slice(0, 20).map(f =>
+      `<div class="file-item"><span class="file-name">${f.name}</span><span class="file-size">${f.size_mb}MB</span><a class="file-dl" href="/api/record/files/${encodeURIComponent(f.name)}" download>⬇</a></div>`
+    ).join('');
   }
 }
 
 // ─── Polling ───
 async function pollAll() {
-  await Promise.all([
-    loadStatus(),
-    loadCCStatus(),
-    loadRecStatus(),
-  ]);
+  await Promise.all([loadStatus(), loadCCStatus(), loadRecStatus()]);
 }
-
-// Start polling
 pollInterval = setInterval(pollAll, 5000);
 pollAll();
-
-// Load initial data
 loadChannels();
 loadStreamUrl();
 
-// ─── Keyboard shortcuts (for desktop) ───
+// ─── Keyboard shortcuts ───
 document.addEventListener('keydown', (e) => {
-  // Only when not typing in input
   if (e.target.tagName === 'INPUT' || e.target.tagName === 'TEXTAREA') return;
-  
   const keyMap = {
-    'ArrowUp': 'up',
-    'ArrowDown': 'down',
-    'ArrowLeft': 'left',
-    'ArrowRight': 'right',
-    'Enter': 'ok',
-    'Escape': 'back',
-    'Backspace': 'back',
-    'h': 'home',
-    ' ': 'ok',
+    'ArrowUp': 'up', 'ArrowDown': 'down', 'ArrowLeft': 'left', 'ArrowRight': 'right',
+    'Enter': 'ok', 'Escape': 'back', 'Backspace': 'back', 'h': 'home', ' ': 'ok',
   };
   const key = keyMap[e.key];
-  if (key) {
-    e.preventDefault();
-    api('POST', `/cc/nav/${key}`);
-  }
+  if (key) { e.preventDefault(); api('POST', `/cc/nav/${key}`); }
 });
