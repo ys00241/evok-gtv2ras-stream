@@ -3,11 +3,10 @@ services:
   # Backend: Stream Manager + Recording
   # ──────────────────────────────────────────────
   backend:
-    image: tv-stream-backend:latest
+    build: .
+    image: tv-stream:latest
     network_mode: host
-    devices:
-      - /dev/video0:/dev/video0
-      - /dev/vchiq:/dev/vchiq
+    devices: []
     volumes:
       - /tmp/hls:/tmp/hls
       - ./recordings:/recordings
@@ -15,6 +14,8 @@ services:
       - STREAM_DIR=/tmp/hls
       - RECORD_DIR=/recordings
       - FLASK_ENV=production
+      - HW_ENCODER=h264_v4l2m2m
+    command: ["python", "app.py"]
     restart: unless-stopped
     stop_grace_period: 10s
 
@@ -22,13 +23,13 @@ services:
   # Web: nginx → HLS + SPA UI + API proxy
   # ──────────────────────────────────────────────
   web:
-    image: arm64v8/nginx:alpine
+    image: nginx:alpine
     ports:
       - "8964:80"
     volumes:
-      - /tmp/hls:/usr/share/nginx/html/hls:ro
       - ./web/nginx.conf:/etc/nginx/conf.d/default.conf:ro
       - ./web:/usr/share/nginx/html:ro
+      - /tmp/hls:/usr/share/nginx/html/hls:ro
     depends_on:
       - backend
     restart: unless-stopped
@@ -37,9 +38,11 @@ services:
   # Chromecast ADB Remote (optional — remove if not needed)
   # ──────────────────────────────────────────────
   cc-remote:
-    image: tv-stream-cc:latest
+    image: tv-stream:latest
+    build: .
     network_mode: host
     environment:
       - CC_HOST=192.168.0.???
       - ADB_PORT=5555
+    command: ["python", "cc_remote.py"]
     restart: unless-stopped
