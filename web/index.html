@@ -1,0 +1,275 @@
+<!DOCTYPE html>
+<html lang="zh-HK">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+  <meta name="theme-color" content="#0f0f13">
+  <title>TV-STREAM Remote</title>
+  <link rel="stylesheet" href="style.css">
+  <!-- hls.js for HLS playback -->
+  <script src="https://cdn.jsdelivr.net/npm/hls.js@0.14.17/dist/hls.min.js"></script>
+</head>
+<body>
+  <!-- ─── Navigation Bar ─── -->
+  <nav id="navbar">
+    <div class="nav-brand">TV-STREAM</div>
+    <div class="nav-tabs" id="navTabs">
+      <button class="nav-tab active" data-tab="dashboard">📊 Dashboard</button>
+      <button class="nav-tab" data-tab="control">🎮 Remote</button>
+      <button class="nav-tab" data-tab="player">📺 Player</button>
+      <button class="nav-tab" data-tab="record">💾 Record</button>
+    </div>
+    <div class="nav-status" id="navStatus">
+      <span class="dot offline" id="streamDot"></span>
+    </div>
+  </nav>
+
+  <!-- ─── DASHBOARD ─── -->
+  <section id="tab-dashboard" class="tab-content active">
+    <div class="card-grid">
+      <!-- Stream Status -->
+      <div class="card">
+        <div class="card-title">📡 Stream Status</div>
+        <div class="stat-row">
+          <span>Status:</span>
+          <span id="streamRunning" class="badge badge-off">Offline</span>
+        </div>
+        <div class="stat-row">
+          <span>HLS Ready:</span>
+          <span id="hlsReady" class="badge badge-off">No</span>
+        </div>
+        <div class="stat-row">
+          <span>Current:</span>
+          <span id="currentPreset">---</span>
+        </div>
+        <div class="stat-row">
+          <span>Chromecast:</span>
+          <span id="ccConnected" class="badge badge-off">Disconnected</span>
+        </div>
+        <div class="btn-group" style="margin-top:12px">
+          <button class="btn btn-success" id="btnStreamStart">▶ Start</button>
+          <button class="btn btn-danger" id="btnStreamStop">■ Stop</button>
+          <button class="btn btn-warning" id="btnStreamRestart">↻ Restart</button>
+        </div>
+      </div>
+
+      <!-- Quality Preset -->
+      <div class="card">
+        <div class="card-title">⚙️ Stream Quality</div>
+        <div class="preset-group" id="presetGroup">
+          <label class="preset-option">
+            <input type="radio" name="preset" value="720p@60">
+            <span class="preset-label">720p @ 60fps</span>
+            <span class="preset-desc">流暢動作</span>
+          </label>
+          <label class="preset-option">
+            <input type="radio" name="preset" value="1080p@30" checked>
+            <span class="preset-label">1080p @ 30fps</span>
+            <span class="preset-desc">畫質優先</span>
+          </label>
+        </div>
+        <button class="btn btn-primary" id="btnPresetApply" style="width:100%;margin-top:8px">Apply</button>
+      </div>
+
+      <!-- Channel Toggles -->
+      <div class="card">
+        <div class="card-title">📡 Channels</div>
+        <div id="channelList">
+          <label class="channel-toggle">
+            <span>🌐 HLS</span>
+            <input type="checkbox" id="ch-hls" checked>
+            <span class="toggle-slider"></span>
+          </label>
+          <label class="channel-toggle">
+            <span>🤝 Teams</span>
+            <input type="checkbox" id="ch-teams">
+            <span class="toggle-slider"></span>
+          </label>
+          <label class="channel-toggle">
+            <span>✈️ Telegram</span>
+            <input type="checkbox" id="ch-telegram">
+            <span class="toggle-slider"></span>
+          </label>
+        </div>
+        <div id="channelConfig" style="margin-top:8px;display:none">
+          <input type="text" id="teamsUrl" placeholder="Teams RTMP URL" class="input-sm">
+          <input type="text" id="teamsKey" placeholder="Stream Key" class="input-sm" style="margin-top:4px">
+          <input type="text" id="tgUrl" placeholder="Telegram RTMP URL" class="input-sm" style="margin-top:4px">
+        </div>
+        <button class="btn btn-primary" id="btnChannelApply" style="width:100%;margin-top:8px">Apply Channels</button>
+      </div>
+    </div>
+  </section>
+
+  <!-- ─── REMOTE CONTROL ─── -->
+  <section id="tab-control" class="tab-content">
+    <div class="card-grid">
+      <!-- Screenshot Preview -->
+      <div class="card" id="screenshotCard">
+        <div class="card-title">
+          📺 Chromecast Screen
+          <button class="btn btn-sm" id="btnExpandScreen">⛶ Expand</button>
+        </div>
+        <div class="screen-preview" id="screenPreview">
+          <img id="screenshotImg" src="" alt="No screenshot">
+          <div class="screen-placeholder" id="screenPlaceholder">
+            <span>📱 Connect to Chromecast first</span>
+          </div>
+        </div>
+        <button class="btn btn-sm" id="btnScreenshot" style="width:100%;margin-top:8px">📸 Refresh Screenshot</button>
+      </div>
+
+      <!-- D-Pad -->
+      <div class="card">
+        <div class="card-title">🎮 D-Pad</div>
+        <div class="dpad">
+          <div class="dpad-row">
+            <div class="dpad-spacer"></div>
+            <button class="btn-dpad" data-key="up">▲</button>
+            <div class="dpad-spacer"></div>
+          </div>
+          <div class="dpad-row">
+            <button class="btn-dpad" data-key="left">◀</button>
+            <button class="btn-dpad btn-dpad-ok" data-key="ok">OK</button>
+            <button class="btn-dpad" data-key="right">▶</button>
+          </div>
+          <div class="dpad-row">
+            <div class="dpad-spacer"></div>
+            <button class="btn-dpad" data-key="down">▼</button>
+            <div class="dpad-spacer"></div>
+          </div>
+        </div>
+        <div class="btn-row" style="margin-top:8px">
+          <button class="btn-nav" data-key="back">↩ Back</button>
+          <button class="btn-nav" data-key="home">🏠 Home</button>
+          <button class="btn-nav" data-key="search">🔍 Search</button>
+        </div>
+      </div>
+
+      <!-- Volume + Apps -->
+      <div class="card">
+        <div class="card-title">🔊 Volume</div>
+        <div class="vol-row">
+          <button class="btn-vol" data-vol="down">−</button>
+          <div class="vol-bar">
+            <div class="vol-fill" id="volFill" style="width:50%"></div>
+          </div>
+          <button class="btn-vol" data-vol="up">+</button>
+          <button class="btn-vol-mute" data-vol="mute">🔇</button>
+        </div>
+        <div class="card-title" style="margin-top:16px">📱 Apps</div>
+        <div class="app-grid">
+          <button class="btn-app" data-app="youtube">▶ YouTube</button>
+          <button class="btn-app" data-app="netflix">🎬 Netflix</button>
+          <button class="btn-app" data-app="disneyplus">✨ Disney+</button>
+          <button class="btn-app" data-app="prime">📦 Prime</button>
+        </div>
+        <div style="margin-top:8px">
+          <input type="text" id="ccTextInput" placeholder="Search text..." class="input-sm" style="width:calc(100% - 60px);display:inline-block">
+          <button class="btn btn-sm" id="btnCcText">Send</button>
+        </div>
+      </div>
+
+      <!-- Expandable Live Preview -->
+      <div class="card" id="expandPreviewCard" style="display:none">
+        <div class="card-title">
+          🔴 Live Preview
+          <button class="btn btn-sm" id="btnCollapseScreen">✕ Close</button>
+        </div>
+        <div class="live-player">
+          <video id="expandVideo" controls autoplay muted playsinline></video>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- ─── PLAYER ─── -->
+  <section id="tab-player" class="tab-content">
+    <div class="card">
+      <div class="card-title">📺 HLS Stream Player</div>
+      <div class="live-player full-player">
+        <video id="playerVideo" controls autoplay muted playsinline></video>
+      </div>
+      <div class="player-info">
+        <div class="stat-row">
+          <span>Stream URL:</span>
+          <span><code id="streamUrl">---</code></span>
+        </div>
+        <div class="btn-row" style="margin-top:8px">
+          <button class="btn btn-primary" id="btnCopyUrl">📋 Copy URL</button>
+          <button class="btn btn-primary" id="btnToggleMute">🔇 Mute</button>
+          <button class="btn btn-primary" id="btnFullscreen">⛶ Fullscreen</button>
+        </div>
+        <div id="qrContainer" style="margin-top:12px;text-align:center">
+          <div id="qrCode" style="display:inline-block;background:white;padding:8px;border-radius:8px"></div>
+          <div style="font-size:12px;color:var(--text-dim);margin-top:4px">Scan with phone camera</div>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- ─── RECORD ─── -->
+  <section id="tab-record" class="tab-content">
+    <div class="card-grid">
+      <!-- Record Controls -->
+      <div class="card">
+        <div class="card-title">💾 Recording</div>
+        <div class="stat-row">
+          <span>Status:</span>
+          <span id="recStatus" class="badge badge-off">Idle</span>
+        </div>
+        <div class="form-group">
+          <label>Quality</label>
+          <select id="recQuality">
+            <option value="same">Same as Live</option>
+            <option value="720p">720p@30</option>
+            <option value="1080p">1080p@30</option>
+          </select>
+        </div>
+        <div class="form-group">
+          <label>Mode</label>
+          <select id="recMode">
+            <option value="single">Single File</option>
+            <option value="segment" selected>Segment (every N min)</option>
+          </select>
+        </div>
+        <div class="form-group" id="segmentOpts">
+          <label>Segment Every</label>
+          <select id="recSegment">
+            <option value="60">1 min</option>
+            <option value="300" selected>5 min</option>
+            <option value="600">10 min</option>
+            <option value="1800">30 min</option>
+          </select>
+        </div>
+        <div class="form-group">
+          <label>Destination</label>
+          <select id="recDest">
+            <option value="local">Local (RPi)</option>
+            <option value="nas">NAS (SMB/NFS)</option>
+            <option value="gdrive">Google Drive</option>
+          </select>
+        </div>
+        <div class="btn-group" style="margin-top:12px">
+          <button class="btn btn-success" id="btnRecStart">▶ Start Record</button>
+          <button class="btn btn-danger" id="btnRecStop">■ Stop</button>
+        </div>
+      </div>
+
+      <!-- Recorded Files -->
+      <div class="card">
+        <div class="card-title">📁 Recorded Files</div>
+        <div class="stat-row">
+          <span>Disk Used:</span>
+          <span id="recDiskUsed">0 MB</span>
+        </div>
+        <div id="recFileList" class="file-list">
+          <div class="file-empty">No recordings yet</div>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <script src="app.js"></script>
+</body>
+</html>

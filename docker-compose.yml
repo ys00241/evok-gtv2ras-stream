@@ -1,0 +1,40 @@
+services:
+  # ──────────────────────────────────────────────
+  # Backend: Stream Manager + ADB Remote + Recording
+  # ──────────────────────────────────────────────
+  backend:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile
+    network_mode: host
+    devices:
+      - /dev/video0:/dev/video0
+      - /dev/vchiq:/dev/vchiq
+    volumes:
+      - /tmp/hls:/tmp/hls
+      - ./recordings:/recordings
+      - ./backend:/app
+      - /var/run/dbus:/var/run/dbus:ro
+    environment:
+      - STREAM_DIR=/tmp/hls
+      - RECORD_DIR=/recordings
+      - CC_HOST=192.168.0.18
+      - FLASK_ENV=production
+      - ADB_PORT=5555
+    restart: unless-stopped
+    stop_grace_period: 10s
+
+  # ──────────────────────────────────────────────
+  # Web: nginx → HLS + SPA UI + API proxy
+  # ──────────────────────────────────────────────
+  web:
+    image: nginx:alpine
+    ports:
+      - "8080:80"
+    volumes:
+      - /tmp/hls:/usr/share/nginx/html/hls:ro
+      - ./web/nginx.conf:/etc/nginx/conf.d/default.conf:ro
+      - ./web:/usr/share/nginx/html:ro
+    depends_on:
+      - backend
+    restart: unless-stopped
