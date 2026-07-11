@@ -1,7 +1,8 @@
 services:
   # ──────────────────────────────────────────────
-  # Backend: Stream Manager + Recording
-  # Serves HLS segments directly via Flask at /hls/
+  # Backend: Stream Manager + Recording + Web UI
+  # Flask serves EVERYTHING — HLS, static UI, API
+  # No nginx bind mount = no 403
   # ──────────────────────────────────────────────
   backend:
     image: ghcr.io/ys00241/evok-gtv2ras-stream:latest
@@ -20,21 +21,15 @@ services:
     stop_grace_period: 10s
 
   # ──────────────────────────────────────────────
-  # Web: nginx → SPA UI + API proxy
-  # HLS served via proxy to backend (no bind mount needed)
+  # Web: nginx → pure reverse proxy to backend
+  # No static files, no bind mounts = no 403
   # ──────────────────────────────────────────────
   web:
     image: nginx:alpine
     ports:
       - "8964:80"
     volumes:
-      - ./web:/usr/share/nginx/html:ro
-    command:
-      - /bin/sh
-      - -c
-      - |
-        cp /usr/share/nginx/html/nginx.conf /etc/nginx/conf.d/default.conf
-        exec nginx -g 'daemon off;'
+      - ./web/nginx.conf:/etc/nginx/conf.d/default.conf:ro
     depends_on:
       - backend
     restart: unless-stopped
