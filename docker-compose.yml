@@ -1,10 +1,10 @@
 services:
   # ──────────────────────────────────────────────
   # Backend: Stream Manager + Recording
-  # Build once via SSH, then Portainer runs pre-built
+  # Pulls from ghcr.io — cross-platform image
   # ──────────────────────────────────────────────
   backend:
-    image: tv-stream-backend:latest
+    image: ghcr.io/ys00241/evok-gtv2ras-stream:latest
     network_mode: host
     devices: []
     volumes:
@@ -38,7 +38,7 @@ services:
   # Chromecast ADB Remote (optional — remove if not needed)
   # ──────────────────────────────────────────────
   cc-remote:
-    image: tv-stream-cc:latest
+    image: ghcr.io/ys00241/evok-gtv2ras-stream:latest
     network_mode: host
     environment:
       - CC_HOST=192.168.0.???
