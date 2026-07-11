@@ -8,6 +8,7 @@ services:
     image: ghcr.io/ys00241/evok-gtv2ras-stream:latest
     ports:
       - "8964:6489"
+      - "6489:6489"
     devices:
       - /dev/video0:/dev/video0
     volumes:
