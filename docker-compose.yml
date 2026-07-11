@@ -4,6 +4,7 @@ services:
   # ──────────────────────────────────────────────
   backend:
     build:
+      context: .
       dockerfile: Dockerfile.backend
     network_mode: host
     devices:
@@ -23,9 +24,9 @@ services:
   # Web: nginx → HLS + SPA UI + API proxy
   # ──────────────────────────────────────────────
   web:
-    image: nginx:alpine
+    image: arm64v8/nginx:alpine
     ports:
-      - "8080:80"
+      - "8964:80"
     volumes:
       - /tmp/hls:/usr/share/nginx/html/hls:ro
       - ./web/nginx.conf:/etc/nginx/conf.d/default.conf:ro
@@ -39,6 +40,7 @@ services:
   # ──────────────────────────────────────────────
   cc-remote:
     build:
+      context: .
       dockerfile: Dockerfile.cc
     network_mode: host
     environment:
