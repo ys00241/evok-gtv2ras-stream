@@ -10,10 +10,11 @@ import signal
 import subprocess
 import threading
 import time
+import mimetypes
 from datetime import datetime
 from pathlib import Path
 
-from flask import Flask, jsonify, request, send_file
+from flask import Flask, jsonify, request, send_file, Response
 from flask_cors import CORS
 
 app = Flask(__name__)
@@ -27,8 +28,8 @@ STREAM_DIR.mkdir(parents=True, exist_ok=True)
 RECORD_DIR.mkdir(parents=True, exist_ok=True)
 
 # ─── State ──────────────────────────────────────────────
-ffmpeg_proc = None  # live streaming ffmpeg
-record_proc = None  # recording ffmpeg (separate)
+ffmpeg_proc = None
+record_proc = None
 
 stream_config = {
     "resolution": "1920x1080",
@@ -60,7 +61,6 @@ record_config = {
 # ─── Helpers ────────────────────────────────────────────
 
 def make_ffmpeg_cmd():
-    """Build ffmpeg command for live streaming with active channels."""
     cfg = stream_config
     cmd = [
         "ffmpeg", "-y",
@@ -85,7 +85,6 @@ def make_ffmpeg_cmd():
     if n_active == 0:
         return None
 
-    # Build filter_complex split for multiple outputs
     if n_active > 1:
         splits = ",".join([f"[out_{i}]" for i in range(n_active)])
         cmd += ["-filter_complex", f"split={n_active}{splits}"]
@@ -126,10 +125,8 @@ def make_ffmpeg_cmd():
 
 
 def make_record_cmd(config=None):
-    """Build ffmpeg command for recording (separate process)."""
     if config is None:
         config = record_config
-
     quality = config["quality"]
     if quality == "same":
         res = stream_config["resolution"]
@@ -137,43 +134,31 @@ def make_record_cmd(config=None):
     elif quality == "720p":
         res = "1280x720"
         fps = 30
-    else:  # 1080p
+    else:
         res = "1920x1080"
         fps = 30
-
     now = datetime.now().strftime("%Y%m%d_%H%M%S")
     out_dir = Path(config["output_dir"])
     out_dir.mkdir(parents=True, exist_ok=True)
-
     cmd = [
         "ffmpeg", "-y",
-        "-f", "v4l2",
-        "-input_format", "mjpeg",
-        "-framerate", str(fps),
-        "-video_size", res,
+        "-f", "v4l2", "-input_format", "mjpeg",
+        "-framerate", str(fps), "-video_size", res,
         "-i", "/dev/video0",
-        "-c:v", "h264_v4l2m2m",
-        "-b:v", "4M",
+        "-c:v", "h264_v4l2m2m", "-b:v", "4M",
         "-preset", "ultrafast",
         "-use_wallclock_as_timestamps", "1",
     ]
-
     if config["mode"] == "segment":
-        cmd += [
-            "-f", "segment",
-            "-segment_time", str(config["segment_seconds"]),
-            "-reset_timestamps", "1",
-            "-strftime", "1",
-            str(out_dir / f"capture_{now}_%03d.mp4"),
-        ]
+        cmd += ["-f", "segment", "-segment_time", str(config["segment_seconds"]),
+                "-reset_timestamps", "1", "-strftime", "1",
+                str(out_dir / f"capture_{now}_%03d.mp4")]
     else:
         cmd += [str(out_dir / f"capture_{now}.mp4")]
-
     return cmd
 
 
 def run_ffmpeg(cmd, tag="ffmpeg"):
-    """Start ffmpeg as subprocess, return Popen."""
     app.logger.info(f"[{tag}] {' '.join(cmd)}")
     return subprocess.Popen(
         cmd,
@@ -184,7 +169,6 @@ def run_ffmpeg(cmd, tag="ffmpeg"):
 
 
 def stop_process(proc, tag="process"):
-    """Gracefully stop a subprocess."""
     if proc is None:
         return
     try:
@@ -200,6 +184,24 @@ def stop_process(proc, tag="process"):
 
 # ─── API Routes ─────────────────────────────────────────
 
+# --- Serve HLS directly (bypass nginx bind mount permission issues) ---
+
+@app.route("/hls/<path:filename>")
+def serve_hls(filename):
+    """Serve HLS segments directly from backend (no nginx bind mount needed)."""
+    filepath = STREAM_DIR / filename
+    if not filepath.exists() or not filepath.is_file():
+        return jsonify({"status": "error", "message": "File not found"}), 404
+    
+    content_type = "video/mp2t"
+    if filename.endswith(".m3u8"):
+        content_type = "application/vnd.apple.mpegurl"
+    
+    return send_file(str(filepath), mimetype=content_type, 
+                     headers={"Access-Control-Allow-Origin": "*",
+                              "Cache-Control": "no-cache, no-store, must-revalidate"})
+
+
 # --- Stream Management ---
 
 @app.route("/api/stream/start", methods=["POST"])
@@ -207,17 +209,14 @@ def stream_start():
     global ffmpeg_proc
     if ffmpeg_proc and ffmpeg_proc.poll() is None:
         return jsonify({"status": "already_running", "message": "Stream already active"})
-
     cmd = make_ffmpeg_cmd()
     if cmd is None:
         return jsonify({"status": "error", "message": "No channels enabled"}), 400
-
     ffmpeg_proc = run_ffmpeg(cmd)
     time.sleep(0.5)
     if ffmpeg_proc.poll() is not None:
         _, err = ffmpeg_proc.communicate()
         return jsonify({"status": "error", "message": f"ffmpeg died: {err[:200]}"}), 500
-
     return jsonify({"status": "ok", "message": "Stream started"})
 
 
@@ -247,11 +246,9 @@ def stream_config_ep():
             "presets": list(RES_PRESETS.keys()),
             "current_preset": get_current_preset(),
         })
-
     data = request.get_json()
     if not data:
         return jsonify({"status": "error", "message": "No config data"}), 400
-
     if "preset" in data and data["preset"] in RES_PRESETS:
         stream_config.update(RES_PRESETS[data["preset"]])
     else:
@@ -261,11 +258,8 @@ def stream_config_ep():
             stream_config["fps"] = int(data["fps"])
         if "bitrate" in data:
             stream_config["bitrate"] = data["bitrate"]
-
     if ffmpeg_proc and ffmpeg_proc.poll() is None:
         threading.Thread(target=lambda: stream_restart(), daemon=True).start()
-        return jsonify({"status": "ok", "message": "Config updated, stream restarting"})
-
     return jsonify({"status": "ok", "config": stream_config})
 
 
@@ -302,28 +296,20 @@ def channel_status():
 def channel_control(name):
     if name not in channels:
         return jsonify({"status": "error", "message": f"Unknown channel: {name}"}), 404
-
     if request.method == "GET":
         return jsonify({"status": "ok", "channel": name, "config": channels[name]})
-
     data = request.get_json()
     if data is None:
         return jsonify({"status": "error", "message": "No data"}), 400
-
     if "enabled" in data:
         channels[name]["enabled"] = bool(data["enabled"])
     if "rtmp_url" in data:
         channels[name]["rtmp_url"] = data["rtmp_url"]
     if "rtmp_key" in data and name == "teams":
         channels[name]["rtmp_key"] = data["rtmp_key"]
-
     if ffmpeg_proc and ffmpeg_proc.poll() is None:
         threading.Thread(target=lambda: stream_restart(), daemon=True).start()
-        msg = "Channel updated, stream restarting"
-    else:
-        msg = "Channel updated"
-
-    return jsonify({"status": "ok", "message": msg, "channel": name, "config": channels[name]})
+    return jsonify({"status": "ok", "config": channels[name]})
 
 
 # --- Recording ---
@@ -333,20 +319,17 @@ def record_start():
     global record_proc
     if record_proc and record_proc.poll() is None:
         return jsonify({"status": "error", "message": "Recording already active"}), 400
-
     data = request.get_json() or {}
     rc = {**record_config}
     for key in ["quality", "mode", "segment_seconds", "destination"]:
         if key in data:
             rc[key] = data[key]
-
     cmd = make_record_cmd(rc)
     record_proc = run_ffmpeg(cmd, tag="record")
     time.sleep(0.5)
     if record_proc.poll() is not None:
         _, err = record_proc.communicate()
         return jsonify({"status": "error", "message": f"Record ffmpeg died: {err[:200]}"}), 500
-
     return jsonify({"status": "ok", "message": "Recording started"})
 
 
@@ -365,17 +348,14 @@ def record_config_ep():
     global record_config
     if request.method == "GET":
         return jsonify({"status": "ok", "config": record_config})
-
     data = request.get_json()
     if not data:
         return jsonify({"status": "error", "message": "No data"}), 400
-
     for key in ["quality", "mode", "destination", "nas_path", "output_dir"]:
         if key in data:
             record_config[key] = data[key]
     if "segment_seconds" in data:
         record_config["segment_seconds"] = int(data["segment_seconds"])
-
     return jsonify({"status": "ok", "config": record_config})
 
 
@@ -388,7 +368,6 @@ def record_status():
         "size_mb": round(f.stat().st_size / (1024 * 1024), 1),
         "modified": datetime.fromtimestamp(f.stat().st_mtime).isoformat(),
     } for f in files[:20]]
-
     return jsonify({
         "status": "ok",
         "running": running,
@@ -411,10 +390,7 @@ def record_download(filename):
 @app.route("/api/system/info", methods=["GET"])
 def system_info():
     import platform
-    info = {
-        "hostname": platform.node(),
-        "python": platform.python_version(),
-    }
+    info = {"hostname": platform.node(), "python": platform.python_version()}
     try:
         r = subprocess.run(["v4l2-ctl", "--list-devices"], capture_output=True, text=True, timeout=3)
         info["v4l2_detected"] = "/dev/video0" in r.stdout
@@ -429,8 +405,6 @@ def system_info():
         info["uptime"] = "unknown"
     return jsonify({"status": "ok", "info": info})
 
-
-# --- Health ---
 
 @app.route("/api/health", methods=["GET"])
 def health():
