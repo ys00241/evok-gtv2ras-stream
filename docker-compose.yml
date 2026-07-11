@@ -4,8 +4,7 @@ services:
   # ──────────────────────────────────────────────
   backend:
     build:
-      context: .
-      dockerfile: backend/Dockerfile
+      dockerfile: Dockerfile.backend
     network_mode: host
     devices:
       - /dev/video0:/dev/video0
@@ -40,8 +39,7 @@ services:
   # ──────────────────────────────────────────────
   cc-remote:
     build:
-      context: .
-      dockerfile: backend/Dockerfile.cc
+      dockerfile: Dockerfile.cc
     network_mode: host
     environment:
       - CC_HOST=192.168.0.???
