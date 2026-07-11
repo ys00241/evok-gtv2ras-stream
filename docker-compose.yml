@@ -34,3 +34,17 @@ services:
     depends_on:
       - backend
     restart: unless-stopped
+
+  # ──────────────────────────────────────────────
+  # Chromecast ADB Remote (optional)
+  # Uncomment below & set CC_HOST when ready
+  # ──────────────────────────────────────────────
+  # cc-remote:
+  #   build:
+  #     context: ./backend
+  #     dockerfile: Dockerfile.cc
+  #   network_mode: host
+  #   environment:
+  #     - CC_HOST=192.168.0.???
+  #     - ADB_PORT=5555
+  #   restart: unless-stopped
