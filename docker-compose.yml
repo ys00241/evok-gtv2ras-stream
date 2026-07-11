@@ -1,17 +1,16 @@
 services:
   # ──────────────────────────────────────────────
   # Backend: Stream Manager + Recording
-  # Pulls from ghcr.io — cross-platform image
   # ──────────────────────────────────────────────
   backend:
     image: ghcr.io/ys00241/evok-gtv2ras-stream:latest
     network_mode: host
     devices: []
     volumes:
-      - /tmp/hls:/tmp/hls
+      - /tmp/hls:/hls
       - ./recordings:/recordings
     environment:
-      - STREAM_DIR=/tmp/hls
+      - STREAM_DIR=/hls
       - RECORD_DIR=/recordings
       - FLASK_ENV=production
       - HW_ENCODER=h264_v4l2m2m
@@ -21,8 +20,7 @@ services:
 
   # ──────────────────────────────────────────────
   # Web: nginx → HLS + SPA UI + API proxy
-  # Uses directory mounts only (Portainer-safe)
-  # nginx.conf copied from web/ mount at container start
+  # Portainer-safe: directory mounts only, no sub-path mounts
   # ──────────────────────────────────────────────
   web:
     image: nginx:alpine
@@ -30,7 +28,7 @@ services:
       - "8964:80"
     volumes:
       - ./web:/usr/share/nginx/html:ro
-      - /tmp/hls:/usr/share/nginx/html/hls:ro
+      - /tmp/hls:/hls:ro
     command:
       - /bin/sh
       - -c
@@ -42,7 +40,7 @@ services:
     restart: unless-stopped
 
   # ──────────────────────────────────────────────
-  # Chromecast ADB Remote (optional — remove if not needed)
+  # Chromecast ADB Remote (optional)
   # ──────────────────────────────────────────────
   cc-remote:
     image: ghcr.io/ys00241/evok-gtv2ras-stream:latest
