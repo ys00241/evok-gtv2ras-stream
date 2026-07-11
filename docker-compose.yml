@@ -1,10 +1,10 @@
 services:
   # ──────────────────────────────────────────────
   # Backend: Stream Manager + Recording
+  # Build once via SSH, then Portainer runs pre-built
   # ──────────────────────────────────────────────
   backend:
-    build: .
-    image: tv-stream:latest
+    image: tv-stream-backend:latest
     network_mode: host
     devices: []
     volumes:
@@ -38,8 +38,7 @@ services:
   # Chromecast ADB Remote (optional — remove if not needed)
   # ──────────────────────────────────────────────
   cc-remote:
-    image: tv-stream:latest
-    build: .
+    image: tv-stream-cc:latest
     network_mode: host
     environment:
       - CC_HOST=192.168.0.???
