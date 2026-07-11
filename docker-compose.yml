@@ -1,13 +1,13 @@
 services:
   # ──────────────────────────────────────────────
   # Backend: Stream Manager + Recording + Web UI
-  # Serves EVERYTHING directly on port 8964
-  # No nginx = zero network hops = no 500
+  # Serves EVERYTHING directly on port 6489 (internal)
+  # Mapped to 8964 (external — no conflict)
   # ──────────────────────────────────────────────
   backend:
     image: ghcr.io/ys00241/evok-gtv2ras-stream:latest
     ports:
-      - "8964:8964"
+      - "8964:6489"
     devices:
       - /dev/video0:/dev/video0
     volumes:
@@ -18,7 +18,7 @@ services:
       - RECORD_DIR=/recordings
       - FLASK_ENV=production
       - HW_ENCODER=h264_v4l2m2m
-      - PORT=8964
+      - PORT=6489
     command: ["python", "app.py"]
     restart: unless-stopped
     stop_grace_period: 10s
