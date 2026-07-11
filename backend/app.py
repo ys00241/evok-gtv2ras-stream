@@ -34,7 +34,7 @@ stream_config = {
     "resolution": "1920x1080",
     "fps": 30,
     "bitrate": "6M",
-    "hw_encoder": "h264_v4l2m2m",
+    "hw_encoder": os.environ.get("HW_ENCODER", "h264_v4l2m2m"),
 }
 RES_PRESETS = {
     "720p@60": {"resolution": "1280x720", "fps": 60, "bitrate": "4M"},
