@@ -75,7 +75,7 @@ def make_ffmpeg_cmd():
         if n > 1:
             cmd += ["-map", f"[out_{idx}]"]
             idx += 1
-        cmd += ["-f", "hls", "-hls_time", "2", "-hls_list_size", "10",
+        cmd += ["-f", "hls", "-hls_time", "1", "-hls_list_size", "5",
                 "-hls_flags", "delete_segments+omit_endlist",
                 "-hls_segment_type", "mpegts", "-progress", "-",
                 str(STREAM_DIR / "stream.m3u8")]
