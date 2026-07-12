@@ -62,7 +62,7 @@ record_config = {
 def make_ffmpeg_cmd():
     cfg = stream_config
     # Audio device: first capture card ALSA device
-    audio_device = os.environ.get("AUDIO_DEV", "hw:1,0")
+    audio_device = os.environ.get("AUDIO_DEV", "hw:3,0")
     cmd = ["ffmpeg", "-y",
            "-f", "v4l2", "-input_format", "mjpeg",
            "-framerate", str(cfg["fps"]), "-video_size", cfg["resolution"],
