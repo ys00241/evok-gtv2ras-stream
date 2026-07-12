@@ -22,12 +22,14 @@ services:
       - FLASK_ENV=production
       - HW_ENCODER=libx264
       - PORT=6489
+      - CC_HOST=192.168.0.???
+      - ADB_PORT=5555
     command: ["python", "app.py"]
     restart: unless-stopped
     stop_grace_period: 10s
 
   # ──────────────────────────────────────────────
-  # Chromecast ADB Remote (optional, needs host net for mDNS)
+  # Chromecast ADB Remote (merged into backend)
   # ──────────────────────────────────────────────
   cc-remote:
     image: ghcr.io/ys00241/evok-gtv2ras-stream:latest
