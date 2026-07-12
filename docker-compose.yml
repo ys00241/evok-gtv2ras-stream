@@ -7,16 +7,20 @@ services:
   backend:
     image: ghcr.io/ys00241/evok-gtv2ras-stream:latest
     platform: linux/arm64
-    pull_policy: missing
+    pull_policy: always
     ports:
       - "8964:6489"
-      - "6489:6489"
     devices:
       - /dev/video0:/dev/video0
       - /dev/snd:/dev/snd
+      - /dev/dri:/dev/dri
     volumes:
       - /tmp/hls:/hls
       - ./recordings:/recordings
+      - /etc/asound.conf:/etc/asound.conf
+    group_add:
+      - audio
+      - video
     environment:
       - STREAM_DIR=/hls
       - RECORD_DIR=/recordings
