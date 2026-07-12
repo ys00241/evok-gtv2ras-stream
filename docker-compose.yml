@@ -6,7 +6,6 @@ services:
   # ──────────────────────────────────────────────
   backend:
     image: ghcr.io/ys00241/evok-gtv2ras-stream:latest
-    platform: linux/arm64
     pull_policy: always
     ports:
       - "8964:6489"
@@ -17,15 +16,15 @@ services:
     volumes:
       - /tmp/hls:/hls
       - ./recordings:/recordings
-      - /etc/asound.conf:/etc/asound.conf
     group_add:
       - audio
       - video
+      - render
     environment:
       - STREAM_DIR=/hls
       - RECORD_DIR=/recordings
       - FLASK_ENV=production
-      - HW_ENCODER=libx264
+      - HW_ENCODER=h264_qsv
       - PORT=6489
       - CC_HOST=192.168.0.???
       - ADB_PORT=5555
