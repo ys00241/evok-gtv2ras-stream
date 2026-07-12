@@ -58,14 +58,24 @@
         <div class="card-title">⚙️ Stream Quality</div>
         <div class="preset-group" id="presetGroup">
           <label class="preset-option">
+            <input type="radio" name="preset" value="720p@30" checked>
+            <span class="preset-label">720p @ 30fps</span>
+            <span class="preset-desc">Default (低延遲)</span>
+          </label>
+          <label class="preset-option">
             <input type="radio" name="preset" value="720p@60">
             <span class="preset-label">720p @ 60fps</span>
             <span class="preset-desc">流暢動作</span>
           </label>
           <label class="preset-option">
-            <input type="radio" name="preset" value="1080p@30" checked>
+            <input type="radio" name="preset" value="1080p@30">
             <span class="preset-label">1080p @ 30fps</span>
-            <span class="preset-desc">畫質優先</span>
+            <span class="preset-desc">高清畫質</span>
+          </label>
+          <label class="preset-option">
+            <input type="radio" name="preset" value="1080p@60">
+            <span class="preset-label">1080p @ 60fps</span>
+            <span class="preset-desc">極致畫質</span>
           </label>
         </div>
         <button class="btn btn-primary" id="btnPresetApply" style="width:100%;margin-top:8px">Apply</button>

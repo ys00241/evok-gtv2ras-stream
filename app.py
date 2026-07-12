@@ -44,8 +44,10 @@ CC_HOST = os.environ.get("CC_HOST", "")
 ADB_PORT = os.environ.get("ADB_PORT", "5555")
 SCR_DIR = Path("/tmp/hls")
 RES_PRESETS = {
-    "720p@60": {"resolution": "1280x720", "fps": 60, "bitrate": "4M"},
+    "720p@30": {"resolution": "1280x720", "fps": 30, "bitrate": "4M"},
+    "720p@60": {"resolution": "1280x720", "fps": 60, "bitrate": "6M"},
     "1080p@30": {"resolution": "1920x1080", "fps": 30, "bitrate": "6M"},
+    "1080p@60": {"resolution": "1920x1080", "fps": 60, "bitrate": "12M"},
 }
 channels = {
     "hls": {"enabled": True, "name": "HLS"},

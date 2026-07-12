@@ -6,6 +6,7 @@ on:
     paths-ignore:
       - 'README.md'
       - 'recordings/**'
+      - 'cc_remote.py'
   workflow_dispatch:
 
 env:
