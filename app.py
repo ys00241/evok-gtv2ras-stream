@@ -147,19 +147,24 @@ def system_info():
 @app.route("/api/stream/start", methods=["POST"])
 def stream_start():
     global ffmpeg_proc
-    if ffmpeg_proc and ffmpeg_proc.poll() is None:
-        return jsonify({"status": "already_running"})
-    cmd = make_ffmpeg_cmd()
-    if cmd is None:
-        return jsonify({"status": "error", "message": "No channels enabled"}), 400
-    app.logger.info(f"[stream] Starting ffmpeg: {' '.join(cmd)}")
-    ffmpeg_proc = run_ffmpeg(cmd)
-    time.sleep(1.5)  # Give ffmpeg more time to init or fail
-    if ffmpeg_proc.poll() is not None:
-        _, err = ffmpeg_proc.communicate()
-        app.logger.error(f"[stream] ffmpeg died immediately. stderr:\n{err[:2000]}")
-        return jsonify({"status": "error", "message": err[:500]}), 500
-    return jsonify({"status": "ok"})
+    try:
+        if ffmpeg_proc and ffmpeg_proc.poll() is None:
+            return jsonify({"status": "already_running"})
+        cmd = make_ffmpeg_cmd()
+        if cmd is None:
+            return jsonify({"status": "error", "message": "No channels enabled"}), 400
+        app.logger.info(f"[stream] Starting ffmpeg: {' '.join(cmd)}")
+        ffmpeg_proc = run_ffmpeg(cmd)
+        time.sleep(1.5)
+        if ffmpeg_proc.poll() is not None:
+            _, err = ffmpeg_proc.communicate()
+            err_text = err[:1000] if err else "(empty stderr)"
+            app.logger.error(f"[stream] ffmpeg died. stderr:\n{err_text}")
+            return jsonify({"status": "error", "message": err_text}), 500
+        return jsonify({"status": "ok"})
+    except Exception as e:
+        app.logger.exception(f"[stream] Unexpected error in stream_start: {e}")
+        return jsonify({"status": "error", "message": str(e)}), 500
 
 
 @app.route("/api/stream/stop", methods=["POST"])
