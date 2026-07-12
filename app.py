@@ -125,11 +125,19 @@ def health():
 # ── System ──
 @app.route("/api/system/info")
 def system_info():
-    info = {"v4l2_detected": False}
+    info = {"v4l2_detected": False, "devices": []}
     try:
         r = subprocess.run(["v4l2-ctl", "--list-devices"],
                            capture_output=True, text=True, timeout=3)
         info["v4l2_detected"] = "/dev/video0" in r.stdout
+        info["devices"] = r.stdout
+    except Exception:
+        pass
+    # List video devices
+    try:
+        r = subprocess.run("ls -la /dev/video* 2>/dev/null || echo 'no video devices'",
+                           shell=True, capture_output=True, text=True, timeout=3)
+        info["dev_list"] = r.stdout
     except Exception:
         pass
     return jsonify({"status": "ok", "info": info})
@@ -144,10 +152,12 @@ def stream_start():
     cmd = make_ffmpeg_cmd()
     if cmd is None:
         return jsonify({"status": "error", "message": "No channels enabled"}), 400
+    app.logger.info(f"[stream] Starting ffmpeg: {' '.join(cmd)}")
     ffmpeg_proc = run_ffmpeg(cmd)
-    time.sleep(0.8)
+    time.sleep(1.5)  # Give ffmpeg more time to init or fail
     if ffmpeg_proc.poll() is not None:
         _, err = ffmpeg_proc.communicate()
+        app.logger.error(f"[stream] ffmpeg died immediately. stderr:\n{err[:2000]}")
         return jsonify({"status": "error", "message": err[:500]}), 500
     return jsonify({"status": "ok"})
 
