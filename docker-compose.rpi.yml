@@ -1,0 +1,46 @@
+services:
+  # ──────────────────────────────────────────────
+  # Backend: Stream Manager + Recording + Web UI
+  # Serves EVERYTHING directly on port 6489 (internal)
+  # Mapped to 8964 (external — no conflict)
+  # ──────────────────────────────────────────────
+  backend:
+    image: ghcr.io/ys00241/evok-gtv2ras-stream:latest
+    platform: linux/arm64
+    pull_policy: always
+    ports:
+      - "8964:6489"
+    devices:
+      - /dev/video0:/dev/video0
+      - /dev/snd:/dev/snd
+    volumes:
+      - /tmp/hls:/hls
+      - ./recordings:/recordings
+    group_add:
+      - audio
+      - video
+    environment:
+      - STREAM_DIR=/hls
+      - RECORD_DIR=/recordings
+      - FLASK_ENV=production
+      - HW_ENCODER=libx264
+      - PORT=6489
+      - CC_HOST=192.168.0.???
+      - ADB_PORT=5555
+    command: ["python", "app.py"]
+    restart: unless-stopped
+    stop_grace_period: 10s
+
+  # ──────────────────────────────────────────────
+  # Chromecast ADB Remote (merged into backend)
+  # ──────────────────────────────────────────────
+  cc-remote:
+    image: ghcr.io/ys00241/evok-gtv2ras-stream:latest
+    network_mode: host
+    environment:
+      - CC_HOST=192.168.0.???
+      - ADB_PORT=5555
+    command: ["python", "cc_remote.py"]
+    restart: unless-stopped
+    profiles:
+      - donotstart
