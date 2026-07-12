@@ -61,15 +61,20 @@ record_config = {
 # ─── ffmpeg helpers ───
 def make_ffmpeg_cmd():
     cfg = stream_config
-    cmd = ["ffmpeg", "-y", "-f", "v4l2", "-input_format", "mjpeg",
+    # Audio device: first capture card ALSA device
+    audio_device = os.environ.get("AUDIO_DEV", "hw:1,0")
+    cmd = ["ffmpeg", "-y",
+           "-f", "v4l2", "-input_format", "mjpeg",
            "-framerate", str(cfg["fps"]), "-video_size", cfg["resolution"],
            "-i", "/dev/video0",
+           "-f", "alsa", "-i", audio_device,
            "-fflags", "nobuffer+low_delay", "-flags", "low_delay",
            "-c:v", cfg["hw_encoder"],
            "-b:v", cfg["bitrate"], "-maxrate", cfg["bitrate"],
            "-bufsize", f"{int(cfg['bitrate'].replace('M',''))}M",
            "-preset", "ultrafast", "-tune", "zerolatency",
            "-g", str(cfg["fps"]), "-pix_fmt", "yuv420p",
+           "-c:a", "aac", "-b:a", "128k", "-ar", "48000",
            "-use_wallclock_as_timestamps", "1", "-flush_packets", "1"]
     active = [ch for ch, info in channels.items() if info["enabled"]]
     n = len(active)

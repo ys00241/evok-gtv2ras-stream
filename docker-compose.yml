@@ -13,6 +13,7 @@ services:
       - "6489:6489"
     devices:
       - /dev/video0:/dev/video0
+      - /dev/snd:/dev/snd
     volumes:
       - /tmp/hls:/hls
       - ./recordings:/recordings
