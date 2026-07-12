@@ -61,21 +61,33 @@ record_config = {
 # ─── ffmpeg helpers ───
 def make_ffmpeg_cmd():
     cfg = stream_config
-    # Audio device: first capture card ALSA device
-    audio_device = os.environ.get("AUDIO_DEV", "hw:3,0")
     cmd = ["ffmpeg", "-y",
            "-f", "v4l2", "-input_format", "mjpeg",
            "-framerate", str(cfg["fps"]), "-video_size", cfg["resolution"],
            "-i", "/dev/video0",
-           "-f", "alsa", "-i", audio_device,
            "-fflags", "nobuffer+low_delay", "-flags", "low_delay",
            "-c:v", cfg["hw_encoder"],
            "-b:v", cfg["bitrate"], "-maxrate", cfg["bitrate"],
            "-bufsize", f"{int(cfg['bitrate'].replace('M',''))}M",
            "-preset", "ultrafast", "-tune", "zerolatency",
            "-g", str(cfg["fps"]), "-pix_fmt", "yuv420p",
-           "-c:a", "aac", "-b:a", "128k", "-ar", "48000",
            "-use_wallclock_as_timestamps", "1", "-flush_packets", "1"]
+
+    # Audio: probe ALSA device — skip if unavailable
+    audio_device = os.environ.get("AUDIO_DEV", "hw:3,0")
+    try:
+        probe = subprocess.run(
+            ["arecord", "-D", audio_device, "--dump-hw-params", "-d", "1"],
+            capture_output=True, text=True, timeout=2
+        )
+        if probe.returncode == 0:
+            cmd += ["-f", "alsa", "-i", audio_device,
+                    "-c:a", "aac", "-b:a", "128k", "-ar", "48000"]
+            app.logger.info(f"[stream] Audio device {audio_device} detected — enabling audio")
+        else:
+            app.logger.info(f"[stream] Audio device {audio_device} not available — video only")
+    except Exception:
+        app.logger.info(f"[stream] Audio probe failed — video only")
     active = [ch for ch, info in channels.items() if info["enabled"]]
     n = len(active)
     if n == 0:
