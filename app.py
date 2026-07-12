@@ -35,7 +35,7 @@ ffmpeg_proc = None
 record_proc = None
 
 stream_config = {
-    "resolution": "1920x1080", "fps": 30, "bitrate": "6M",
+    "resolution": "1280x720", "fps": 30, "bitrate": "4M",
     "hw_encoder": os.environ.get("HW_ENCODER", "libx264"),
 }
 RES_PRESETS = {
