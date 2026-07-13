@@ -204,7 +204,7 @@ def stream_start():
         time.sleep(1.5)
         if ffmpeg_proc.poll() is not None:
             out, err = ffmpeg_proc.communicate()
-            err_text = (err or b"").decode("utf-8", errors="replace")[:2000]
+            err_text = (err or b"").decode("utf-8", errors="replace")[:5000]
             out_text = (out or b"").decode("utf-8", errors="replace")[:500]
             app.logger.error(f"[stream] ffmpeg died. exit={ffmpeg_proc.returncode}\nstderr:\n{err_text}\nstdout:\n{out_text}")
             return jsonify({"status": "error", "message": err_text}), 500
