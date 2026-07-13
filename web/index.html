@@ -91,6 +91,11 @@
             <span class="toggle-slider"></span>
           </label>
           <label class="channel-toggle">
+            <span>📡 RTSP</span>
+            <input type="checkbox" id="ch-rtsp">
+            <span class="toggle-slider"></span>
+          </label>
+          <label class="channel-toggle">
             <span>🤝 Teams</span>
             <input type="checkbox" id="ch-teams">
             <span class="toggle-slider"></span>
@@ -202,8 +207,16 @@
       </div>
       <div class="player-info">
         <div class="stat-row">
-          <span>Stream URL:</span>
+          <span>🎥 HLS URL:</span>
           <span><code id="streamUrl">---</code></span>
+        </div>
+        <div class="stat-row" id="rtspUrlRow" style="display:none">
+          <span>📡 RTSP URL:</span>
+          <span><code id="rtspUrl">---</code></span>
+        </div>
+        <div class="stat-row">
+          <span>📺 VLC:</span>
+          <span style="font-size:12px">Open RTSP URL → Media → Open Network Stream</span>
         </div>
         <div class="btn-row" style="margin-top:8px">
           <button class="btn btn-primary" id="btnCopyUrl">📋 Copy URL</button>

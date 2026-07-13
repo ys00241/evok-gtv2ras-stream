@@ -10,5 +10,5 @@ RUN pip install --no-cache-dir -r requirements.txt
 COPY app.py cc_remote.py ./
 COPY web/ /app/web/
 
-EXPOSE 5000 8964
+EXPOSE 5000 6489 8554
 CMD ["python", "app.py"]

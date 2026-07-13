@@ -51,6 +51,7 @@ RES_PRESETS = {
 }
 channels = {
     "hls": {"enabled": True, "name": "HLS"},
+    "rtsp": {"enabled": False, "name": "RTSP", "port": 8554},
     "teams": {"enabled": False, "name": "Microsoft Teams", "rtmp_url": "", "rtmp_key": ""},
     "telegram": {"enabled": False, "name": "Telegram", "rtmp_url": ""},
 }
@@ -125,6 +126,15 @@ def make_ffmpeg_cmd():
                 "-hls_flags", "delete_segments+omit_endlist",
                 "-hls_segment_type", "mpegts", "-progress", "-",
                 str(STREAM_DIR / "stream.m3u8")]
+    if channels["rtsp"]["enabled"]:
+        if n > 1:
+            cmd += ["-map", f"[out_{idx}]"]
+            idx += 1
+        rtsp_port = channels["rtsp"].get("port", 8554)
+        cmd += ["-f", "rtsp", "-muxdelay", "0.1",
+                "-rtsp_transport", "tcp",
+                "-listen", "1",
+                f"rtsp://0.0.0.0:{rtsp_port}/live"]
     if channels["teams"]["enabled"] and channels["teams"]["rtmp_url"]:
         if n > 1:
             cmd += ["-map", f"[out_{idx}]"]
@@ -270,11 +280,11 @@ def stream_status():
         if p["resolution"] == stream_config["resolution"] and p["fps"] == stream_config["fps"]:
             cp = n
             break
-    return jsonify({
-        "status": "ok", "running": running, "hls_ready": hls_ready,
+    return jsonify({"status": "ok", "running": running, "hls_ready": hls_ready,
         "config": stream_config,
-        "channels": {k: v["enabled"] for k, v in channels.items()},
-        "current_preset": cp
+        "channels": {k: {"enabled": v["enabled"], "name": v["name"]} for k, v in channels.items()},
+        "current_preset": cp,
+        "rtsp_url": f"rtsp://{request.host.split(':')[0]}:{channels['rtsp']['port']}/live" if channels["rtsp"]["enabled"] else None
     })
 
 
@@ -291,7 +301,7 @@ def channel_control(name):
     if request.method == "GET":
         return jsonify({"status": "ok", "config": channels[name]})
     data = request.get_json(silent=True) or {}
-    for k in ("enabled", "rtmp_url", "rtmp_key"):
+    for k in ("enabled", "rtmp_url", "rtmp_key", "port"):
         if k in data:
             channels[name][k] = data[k]
     if ffmpeg_proc and ffmpeg_proc.poll() is None:

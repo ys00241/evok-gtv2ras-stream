@@ -4,6 +4,7 @@ const API_BASE = '/api';
 let hlsPlayers = {};
 let pollInterval = null;
 let streamUrl = '';
+let rtspUrl = '';
 
 // ─── Tab Navigation ───
 document.querySelectorAll('.nav-tab').forEach(tab => {
@@ -80,6 +81,7 @@ async function loadChannels() {
   if (data.status !== 'ok') return;
   const ch = data.channels;
   document.getElementById('ch-hls').checked = ch.hls?.enabled || false;
+  document.getElementById('ch-rtsp').checked = ch.rtsp?.enabled || false;
   document.getElementById('ch-teams').checked = ch.teams?.enabled || false;
   document.getElementById('ch-telegram').checked = ch.telegram?.enabled || false;
   if (ch.teams) {
@@ -118,6 +120,15 @@ async function loadStreamUrl() {
   initPlayer('playerVideo', streamUrl);
   const ev = document.getElementById('expandVideo');
   if (ev && !ev.src) initPlayer('expandVideo', streamUrl);
+  // Also get RTSP URL from status
+  const data = await api('GET', '/stream/status');
+  if (data.rtsp_url) {
+    rtspUrl = data.rtsp_url;
+    document.getElementById('rtspUrl').textContent = rtspUrl;
+    document.getElementById('rtspUrlRow').style.display = 'flex';
+  } else {
+    document.getElementById('rtspUrlRow').style.display = 'none';
+  }
 }
 
 // ─── Buttons: Stream ───
@@ -150,17 +161,20 @@ document.getElementById('btnPresetApply').addEventListener('click', async () => 
 // ─── Buttons: Channels ───
 document.getElementById('btnChannelApply').addEventListener('click', async () => {
   const hls = document.getElementById('ch-hls').checked;
+  const rtsp = document.getElementById('ch-rtsp').checked;
   const teams = document.getElementById('ch-teams').checked;
   const tg = document.getElementById('ch-telegram').checked;
   const teamsUrl = document.getElementById('teamsUrl').value;
   const teamsKey = document.getElementById('teamsKey').value;
   const tgUrl = document.getElementById('tgUrl').value;
   await api('PUT', '/channel/hls', { enabled: hls });
+  await api('PUT', '/channel/rtsp', { enabled: rtsp });
   await api('PUT', '/channel/teams', { enabled: teams, rtmp_url: teamsUrl, rtmp_key: teamsKey });
   await api('PUT', '/channel/telegram', { enabled: tg, rtmp_url: tgUrl });
   toast('Channels updated', 'success');
   loadChannels();
   loadStatus();
+  loadStreamUrl();
 });
 
 document.getElementById('ch-teams').addEventListener('change', toggleChannelConfig);
