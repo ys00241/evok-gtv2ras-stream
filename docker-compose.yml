@@ -19,7 +19,6 @@ services:
     group_add:
       - audio
       - video
-      - render
     environment:
       - STREAM_DIR=/hls
       - RECORD_DIR=/recordings
