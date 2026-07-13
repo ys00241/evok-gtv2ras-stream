@@ -130,11 +130,8 @@ def make_ffmpeg_cmd():
         if n > 1:
             cmd += ["-map", f"[out_{idx}]"]
             idx += 1
-        rtsp_port = channels["rtsp"].get("port", 8554)
-        cmd += ["-f", "rtsp", "-muxdelay", "0.1",
-                "-rtsp_transport", "tcp",
-                "-listen", "1",
-                f"rtsp://0.0.0.0:{rtsp_port}/live"]
+        push_url = os.environ.get("RTSP_PUSH_URL", "rtmp://mediamtx:1935/live")
+        cmd += ["-f", "flv", "-flvflags", "no_duration_filesize", push_url]
     if channels["teams"]["enabled"] and channels["teams"]["rtmp_url"]:
         if n > 1:
             cmd += ["-map", f"[out_{idx}]"]
@@ -284,7 +281,7 @@ def stream_status():
         "config": stream_config,
         "channels": {k: {"enabled": v["enabled"], "name": v["name"]} for k, v in channels.items()},
         "current_preset": cp,
-        "rtsp_url": f"rtsp://{request.host.split(':')[0]}:{channels['rtsp']['port']}/live" if channels["rtsp"]["enabled"] else None
+        "rtsp_active": channels["rtsp"]["enabled"]
     })
 
 

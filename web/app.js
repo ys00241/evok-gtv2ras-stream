@@ -121,9 +121,10 @@ async function loadStreamUrl() {
   const ev = document.getElementById('expandVideo');
   if (ev && !ev.src) initPlayer('expandVideo', streamUrl);
   // Also get RTSP URL from status
-  const data = await api('GET', '/stream/status');
-  if (data.rtsp_url) {
-    rtspUrl = data.rtsp_url;
+  const statusData = await api('GET', '/stream/status');
+  if (statusData.rtsp_active) {
+    const hostname = window.location.hostname;
+    rtspUrl = `rtsp://${hostname}:8554/live`;
     document.getElementById('rtspUrl').textContent = rtspUrl;
     document.getElementById('rtspUrlRow').style.display = 'flex';
   } else {
