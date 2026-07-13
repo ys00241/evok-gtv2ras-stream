@@ -1,0 +1,12 @@
+# MediaMTX config — force RTSP TCP only for stable low-latency
+rtsp:
+  protocols: [tcp]
+rtmp: {}
+hls: false
+webrtc: false
+srt: false
+record: false
+
+paths:
+  live:
+    source: publisher

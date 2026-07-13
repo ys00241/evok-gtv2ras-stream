@@ -43,7 +43,8 @@ services:
     pull_policy: always
     ports:
       - "8554:8554"
-      - "1935:1935"
+    volumes:
+      - ./mediamtx.yml:/mediamtx.yml:ro
     restart: unless-stopped
 
   # ──────────────────────────────────────────────

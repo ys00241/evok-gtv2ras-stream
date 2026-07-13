@@ -116,7 +116,7 @@ def make_ffmpeg_cmd():
         return None
     idx = 0
     if n > 1:
-        splits = ",".join([f"[out_{i}]" for i in range(n)])
+        splits = "".join([f"[out_{i}]" for i in range(n)])
         cmd += ["-filter_complex", f"split={n}{splits}"]
     if channels["hls"]["enabled"]:
         if n > 1:
@@ -199,13 +199,18 @@ def system_info():
 # ── Stream Control ──
 @app.route("/api/stream/start", methods=["POST"])
 def stream_start():
+    result = _start_stream()
+    return jsonify(result), 500 if result.get("status") == "error" else 200
+
+
+def _start_stream():
     global ffmpeg_proc
     try:
         if ffmpeg_proc and ffmpeg_proc.poll() is None:
-            return jsonify({"status": "already_running"})
+            return {"status": "already_running"}
         cmd = make_ffmpeg_cmd()
         if cmd is None:
-            return jsonify({"status": "error", "message": "No channels enabled"}), 400
+            return {"status": "error", "message": "No channels enabled"}
         app.logger.info(f"[stream] Starting ffmpeg: {' '.join(cmd)}")
         ffmpeg_proc = run_ffmpeg(cmd)
         time.sleep(1.5)
@@ -214,15 +219,19 @@ def stream_start():
             err_text = (err or b"").decode("utf-8", errors="replace")[:5000]
             out_text = (out or b"").decode("utf-8", errors="replace")[:500]
             app.logger.error(f"[stream] ffmpeg died. exit={ffmpeg_proc.returncode}\nstderr:\n{err_text}\nstdout:\n{out_text}")
-            return jsonify({"status": "error", "message": err_text}), 500
-        return jsonify({"status": "ok"})
+            return {"status": "error", "message": err_text}
+        return {"status": "ok"}
     except Exception as e:
-        app.logger.exception(f"[stream] Unexpected error in stream_start: {e}")
-        return jsonify({"status": "error", "message": str(e)}), 500
+        app.logger.exception(f"[stream] Unexpected error in _start_stream: {e}")
+        return {"status": "error", "message": str(e)}
 
 
 @app.route("/api/stream/stop", methods=["POST"])
 def stream_stop():
+    return jsonify(_stop_stream())
+
+
+def _stop_stream():
     global ffmpeg_proc
     if ffmpeg_proc:
         stop_process(ffmpeg_proc)
@@ -233,12 +242,12 @@ def stream_stop():
             f.unlink()
         except Exception:
             pass
-    return jsonify({"status": "ok"})
+    return {"status": "ok"}
 
 
 @app.route("/api/stream/restart", methods=["POST"])
 def stream_restart():
-    stream_stop()
+    _stop_stream()
     time.sleep(0.5)
     return stream_start()
 
