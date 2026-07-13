@@ -60,23 +60,55 @@ record_config = {
     "nas_path": "", "output_dir": str(RECORD_DIR),
 }
 
+# ─── Audio auto-detect ───
+def detect_audio_device():
+    """Probe ALSA for MS2109 capture card. Fallback gracefully."""
+    env_dev = os.environ.get("AUDIO_DEV", "")
+    if env_dev:
+        # Quick validate: try reading a few bytes
+        try:
+            r = subprocess.run(
+                ["arecord", "-D", env_dev, "-d", "1", "-f", "S16_LE", "-r", "48000", "-c", "2", "/dev/null"],
+                capture_output=True, timeout=3)
+            if r.returncode == 0:
+                return env_dev
+        except Exception:
+            pass
+    # Auto-detect from arecord -l
+    try:
+        r = subprocess.run(["arecord", "-l"], capture_output=True, text=True, timeout=2)
+        for line in r.stdout.split("\n"):
+            if "MS2109" in line or "MS2130" in line or "USB Audio" in line:
+                import re
+                m = re.search(r"card (\d+):", line)
+                if m:
+                    dev = f"hw:{m.group(1)},0"
+                    app.logger.info(f"[audio] Auto-detected: {dev}")
+                    return dev
+    except Exception:
+        pass
+    app.logger.warning("[audio] No capture card detected — streaming video-only")
+    return None
+
+
 # ─── ffmpeg helpers ───
 def make_ffmpeg_cmd():
     cfg = stream_config
-    audio_device = os.environ.get("AUDIO_DEV", "hw:3,0")
     cmd = ["ffmpeg", "-y",
            "-thread_queue_size", "512",
            "-f", "v4l2", "-input_format", "mjpeg",
            "-framerate", str(cfg["fps"]), "-video_size", cfg["resolution"],
-           "-i", "/dev/video0",
-           "-thread_queue_size", "512",
-           "-f", "alsa", "-i", audio_device,
-           "-c:v", cfg["hw_encoder"],
-           "-b:v", cfg["bitrate"],
-           "-preset", "ultrafast",
-           "-pix_fmt", "yuv420p",
-           "-c:a", "aac", "-b:a", "128k", "-ar", "48000",
-           "-use_wallclock_as_timestamps", "1"]
+           "-i", "/dev/video0"]
+    audio_device = detect_audio_device()
+    if audio_device:
+        cmd += ["-thread_queue_size", "512",
+                "-f", "alsa", "-i", audio_device]
+    cmd += ["-c:v", cfg["hw_encoder"],
+            "-b:v", cfg["bitrate"],
+            "-preset", "ultrafast",
+            "-pix_fmt", "yuv420p",
+            "-c:a", "aac", "-b:a", "128k", "-ar", "48000",
+            "-use_wallclock_as_timestamps", "1"]
     active = [ch for ch, info in channels.items() if info["enabled"]]
     n = len(active)
     if n == 0:
