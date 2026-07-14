@@ -9,7 +9,6 @@ services:
     pull_policy: always
     ports:
       - "8964:6489"
-      - "8554:8554"
     devices:
       - /dev/video0:/dev/video0
       - /dev/snd:/dev/snd

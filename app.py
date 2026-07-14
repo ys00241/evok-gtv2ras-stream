@@ -1,31 +1,27 @@
 """
 TV-STREAM Backend — Flask API Server
-Serves EVERYTHING: HLS + Web UI + Recording + API
+Serves EVERYTHING: HLS + MJPEG + Web UI + Recording + API
 Single container, no nginx dependency
 """
-
 import os, signal, subprocess, threading, time
 from datetime import datetime
 from pathlib import Path
-from flask import Flask, jsonify, request, send_file, send_from_directory
+from flask import Flask, jsonify, request, send_file, send_from_directory, Response
 from flask_cors import CORS
 
 PORT = int(os.environ.get("PORT", 5000))
-
 app = Flask(__name__, static_folder=None)
 CORS(app)
 
 # ─── Config ───
 STREAM_DIR = Path(os.environ.get("STREAM_DIR", "/hls"))
 RECORD_DIR = Path(os.environ.get("RECORD_DIR", "/recordings"))
-# Where the Dockerfile placed web/ files
 BASE_DIR = Path(__file__).parent
 WEB_UI_DIR = BASE_DIR / "web"
 if not WEB_UI_DIR.exists():
-    # Fallback for older image layout
     WEB_UI_DIR = Path("/usr/share/nginx/html")
     if not WEB_UI_DIR.exists():
-        WEB_UI_DIR = BASE_DIR  # last resort
+        WEB_UI_DIR = BASE_DIR
 
 STREAM_DIR.mkdir(parents=True, exist_ok=True)
 RECORD_DIR.mkdir(parents=True, exist_ok=True)
@@ -33,6 +29,7 @@ RECORD_DIR.mkdir(parents=True, exist_ok=True)
 # ─── State ───
 ffmpeg_proc = None
 record_proc = None
+mjpeg_proc = None
 
 stream_config = {
     "resolution": "1280x720", "fps": 30, "bitrate": "4M",
@@ -51,7 +48,7 @@ RES_PRESETS = {
 }
 channels = {
     "hls": {"enabled": True, "name": "HLS"},
-    "rtsp": {"enabled": False, "name": "RTSP", "port": 8554},
+    "mjpeg": {"enabled": False, "name": "HTTP MJPEG"},
     "teams": {"enabled": False, "name": "Microsoft Teams", "rtmp_url": "", "rtmp_key": ""},
     "telegram": {"enabled": False, "name": "Telegram", "rtmp_url": ""},
 }
@@ -63,10 +60,8 @@ record_config = {
 
 # ─── Audio auto-detect ───
 def detect_audio_device():
-    """Probe ALSA for MS2109 capture card. Fallback gracefully."""
     env_dev = os.environ.get("AUDIO_DEV", "")
     if env_dev:
-        # Quick validate: try reading a few bytes
         try:
             r = subprocess.run(
                 ["arecord", "-D", env_dev, "-d", "1", "-f", "S16_LE", "-r", "48000", "-c", "2", "/dev/null"],
@@ -75,7 +70,6 @@ def detect_audio_device():
                 return env_dev
         except Exception:
             pass
-    # Auto-detect from arecord -l
     try:
         r = subprocess.run(["arecord", "-l"], capture_output=True, text=True, timeout=2)
         for line in r.stdout.split("\n"):
@@ -91,9 +85,33 @@ def detect_audio_device():
     app.logger.warning("[audio] No capture card detected — streaming video-only")
     return None
 
-
 # ─── ffmpeg helpers ───
 def make_ffmpeg_cmd():
+    """HLS software encode command."""
+    cfg = stream_config
+    vcodec = cfg["hw_encoder"]
+    cmd = ["ffmpeg", "-y",
+           "-thread_queue_size", "512",
+           "-f", "v4l2", "-input_format", "mjpeg",
+           "-framerate", str(cfg["fps"]), "-video_size", cfg["resolution"],
+           "-i", "/dev/video0"]
+    audio_device = detect_audio_device()
+    if audio_device:
+        cmd += ["-thread_queue_size", "512", "-f", "alsa", "-i", audio_device]
+    cmd += ["-use_wallclock_as_timestamps", "1"]
+    cmd += ["-c:v", vcodec, "-b:v", cfg["bitrate"],
+            "-preset", "veryfast", "-pix_fmt", "yuv420p"]
+    if audio_device:
+        cmd += ["-c:a", "aac", "-b:a", "128k", "-ar", "48000"]
+    cmd += ["-f", "hls", "-hls_time", "1", "-hls_list_size", "5",
+            "-hls_flags", "delete_segments+omit_endlist",
+            "-hls_segment_type", "mpegts",
+            str(STREAM_DIR / "stream.m3u8")]
+    return cmd
+
+
+def make_mjpeg_cmd():
+    """Zero-CPU MJPEG pipe command (copy mode, no encode)."""
     cfg = stream_config
     cmd = ["ffmpeg", "-y",
            "-thread_queue_size", "512",
@@ -102,112 +120,9 @@ def make_ffmpeg_cmd():
            "-i", "/dev/video0"]
     audio_device = detect_audio_device()
     if audio_device:
-        cmd += ["-thread_queue_size", "512",
-                "-f", "alsa", "-i", audio_device]
-    cmd += ["-use_wallclock_as_timestamps", "1"]
-    active = [ch for ch, info in channels.items() if info["enabled"]]
-    n = len(active)
-    if n == 0:
-        return None
-    # ── Single output ──
-    if n == 1:
-        if channels["rtsp"]["enabled"]:
-            # RTSP: MJPG copy = zero CPU
-            cmd += ["-c:v", "copy"]
-            if audio_device:
-                cmd += ["-c:a", "aac", "-b:a", "128k", "-ar", "48000"]
-            cmd += ["-f", "rtsp", "-listen", "1", "rtsp://0.0.0.0:8554/live"]
-        elif channels["hls"]["enabled"]:
-            # HLS: software encode (CPU heavy)
-            vcodec = cfg["hw_encoder"]
-            cmd += ["-c:v", vcodec, "-b:v", cfg["bitrate"],
-                    "-preset", "veryfast", "-pix_fmt", "yuv420p",
-                    "-g", "30", "-keyint_min", "30"]
-            if audio_device:
-                cmd += ["-c:a", "aac", "-b:a", "128k", "-ar", "48000"]
-            cmd += ["-f", "hls", "-hls_time", "1", "-hls_list_size", "5",
-                    "-hls_flags", "delete_segments+omit_endlist",
-                    "-hls_segment_type", "mpegts",
-                    str(STREAM_DIR / "stream.m3u8")]
-        elif channels["teams"]["enabled"] and channels["teams"]["rtmp_url"]:
-            cmd += ["-c:v", "libx264", "-b:v", "2M", "-preset", "veryfast",
-                    "-pix_fmt", "yuv420p"] + (["-c:a", "aac", "-b:a", "128k"] if audio_device else [])
-            cmd += ["-f", "flv", f"{channels['teams']['rtmp_url']}/{channels['teams']['rtmp_key']}"]
-        elif channels["telegram"]["enabled"] and channels["telegram"]["rtmp_url"]:
-            cmd += ["-c:v", "libx264", "-b:v", "2M", "-preset", "veryfast",
-                    "-pix_fmt", "yuv420p"] + (["-c:a", "aac", "-b:a", "128k"] if audio_device else [])
-            cmd += ["-f", "flv", channels["telegram"]["rtmp_url"]]
-        return cmd
-    # ── Multiple outputs (HLS + RTSP most common) ──
-    # RTSP copy needs special handling: split then one branch copy, other encode
-    has_hls = channels["hls"]["enabled"]
-    has_rtsp = channels["rtsp"]["enabled"]
-    if has_hls and has_rtsp and n == 2:
-        # Split video: HLS gets libx264, RTSP gets MJPG copy
-        # Split audio: both get same AAC if present
-        cmd += ["-filter_complex", "split=2[v0][v1]"]
-        if audio_device:
-            cmd += ["-filter_complex", "split=2[v0][v1]; asplit=2[a0][a1]"]
-            # HLS output
-            cmd += ["-map", "[v0]", "-map", "[a0]",
-                    "-c:v", "libx264", "-b:v", cfg["bitrate"],
-                    "-preset", "veryfast", "-pix_fmt", "yuv420p",
-                    "-c:a", "aac", "-b:a", "128k", "-ar", "48000",
-                    "-f", "hls", "-hls_time", "1", "-hls_list_size", "5",
-                    "-hls_flags", "delete_segments+omit_endlist",
-                    "-hls_segment_type", "mpegts",
-                    str(STREAM_DIR / "stream.m3u8")]
-            # RTSP output (MJPG copy)
-            cmd += ["-map", "[v1]", "-map", "[a1]",
-                    "-c:v", "copy",
-                    "-c:a", "aac", "-b:a", "128k", "-ar", "48000",
-                    "-f", "rtsp", "-listen", "1", "rtsp://0.0.0.0:8554/live"]
-        else:
-            # No audio
-            cmd += ["-map", "[v0]",
-                    "-c:v", "libx264", "-b:v", cfg["bitrate"],
-                    "-preset", "veryfast", "-pix_fmt", "yuv420p",
-                    "-f", "hls", "-hls_time", "1", "-hls_list_size", "5",
-                    "-hls_flags", "delete_segments+omit_endlist",
-                    "-hls_segment_type", "mpegts",
-                    str(STREAM_DIR / "stream.m3u8")]
-            cmd += ["-map", "[v1]",
-                    "-c:v", "copy",
-                    "-f", "rtsp", "-listen", "1", "rtsp://0.0.0.0:8554/live"]
-        return cmd
-    # ── Fallback for other combos (encode everything) ──
-    # (Shouldn't be needed often — just encode with veryfast)
-    vcodec = cfg["hw_encoder"]
-    acodec_opts = ["-c:a", "aac", "-b:a", "128k", "-ar", "48000"] if audio_device else []
-    enc_opts = ["-c:v", vcodec, "-b:v", cfg["bitrate"],
-                "-preset", "veryfast", "-pix_fmt", "yuv420p"]
-    v_tags = "".join([f"[v{i}]" for i in range(n)])
-    a_tags = "".join([f"[a{i}]" for i in range(n)])
-    if audio_device:
-        cmd += ["-filter_complex", f"split={n}{v_tags}; asplit={n}{a_tags}"]
-    else:
-        cmd += ["-filter_complex", f"split={n}{v_tags}"]
-    idx = 0
-    for ch, info in channels.items():
-        if not info["enabled"]:
-            continue
-        cmd += ["-map", f"[v{idx}]"]
-        if audio_device:
-            cmd += ["-map", f"[a{idx}]"]
-        idx += 1
-        cmd += enc_opts + acodec_opts
-        if ch == "hls":
-            cmd += ["-f", "hls", "-hls_time", "1", "-hls_list_size", "5",
-                    "-hls_flags", "delete_segments+omit_endlist",
-                    "-hls_segment_type", "mpegts",
-                    str(STREAM_DIR / "stream.m3u8")]
-        elif ch == "rtsp":
-            push_url = os.environ.get("RTSP_PUSH_URL", "rtmp://mediamtx:1935/live")
-            cmd += ["-f", "flv", "-flvflags", "no_duration_filesize", push_url]
-        elif ch == "teams" and info.get("rtmp_url"):
-            cmd += ["-f", "flv", f"{info['rtmp_url']}/{info['rtmp_key']}"]
-        elif ch == "telegram" and info.get("rtmp_url"):
-            cmd += ["-f", "flv", info["rtmp_url"]]
+        cmd += ["-thread_queue_size", "512", "-f", "alsa", "-i", audio_device]
+        cmd += ["-c:a", "aac", "-b:a", "128k", "-ar", "48000", "-ac", "2"]
+    cmd += ["-c:v", "copy", "-f", "image2pipe", "-"]
     return cmd
 
 
@@ -232,7 +147,7 @@ def stop_process(proc):
 
 
 # ═══════════════════════════════════════════
-# ROUTES — specific BEFORE catch-all
+# ROUTES
 # ═══════════════════════════════════════════
 
 # ── Health ──
@@ -252,7 +167,6 @@ def system_info():
         info["devices"] = r.stdout
     except Exception:
         pass
-    # List video devices
     try:
         r = subprocess.run("ls -la /dev/video* 2>/dev/null || echo 'no video devices'",
                            shell=True, capture_output=True, text=True, timeout=3)
@@ -266,6 +180,8 @@ def system_info():
 @app.route("/api/stream/start", methods=["POST"])
 def stream_start():
     result = _start_stream()
+    if result.get("status") == "ok" and channels["mjpeg"]["enabled"]:
+        _start_mjpeg()
     return jsonify(result), 500 if result.get("status") == "error" else 200
 
 
@@ -275,9 +191,7 @@ def _start_stream():
         if ffmpeg_proc and ffmpeg_proc.poll() is None:
             return {"status": "already_running"}
         cmd = make_ffmpeg_cmd()
-        if cmd is None:
-            return {"status": "error", "message": "No channels enabled"}
-        app.logger.info(f"[stream] Starting ffmpeg: {' '.join(cmd)}")
+        app.logger.info(f"[stream] Starting: {' '.join(cmd)}")
         ffmpeg_proc = run_ffmpeg(cmd)
         time.sleep(1.5)
         if ffmpeg_proc.poll() is not None:
@@ -285,8 +199,49 @@ def _start_stream():
             return {"status": "error", "message": f"ffmpeg exit code {ffmpeg_proc.returncode}"}
         return {"status": "ok"}
     except Exception as e:
-        app.logger.exception(f"[stream] Unexpected error in _start_stream: {e}")
+        app.logger.exception(f"[stream] Start error: {e}")
         return {"status": "error", "message": str(e)}
+
+
+def _start_mjpeg():
+    global mjpeg_proc
+    try:
+        stop_process(mjpeg_proc)
+        cmd = make_mjpeg_cmd()
+        app.logger.info(f"[mjpeg] Starting: {' '.join(cmd)}")
+        mjpeg_proc = subprocess.Popen(cmd, stdout=subprocess.PIPE, stderr=subprocess.DEVNULL, bufsize=0)
+        time.sleep(0.5)
+        if mjpeg_proc.poll() is not None:
+            app.logger.error(f"[mjpeg] died. exit={mjpeg_proc.returncode}")
+            mjpeg_proc = None
+    except Exception as e:
+        app.logger.exception(f"[mjpeg] start error: {e}")
+        mjpeg_proc = None
+
+
+def _stop_mjpeg():
+    global mjpeg_proc
+    stop_process(mjpeg_proc)
+    mjpeg_proc = None
+
+
+@app.route("/api/stream/mjpeg")
+def stream_mjpeg():
+    """HTTP MJPEG streaming — zero CPU, multipart/x-mixed-replace."""
+    def generate():
+        BOUNDARY = b"FRAME"
+        while True:
+            if mjpeg_proc is None or mjpeg_proc.poll() is not None:
+                yield BOUNDARY + b"\r\nContent-Type: text/plain\r\n\r\nStream ended\r\n"
+                break
+            frame = mjpeg_proc.stdout.read(65536)
+            if not frame or len(frame) < 100:
+                time.sleep(0.05)
+                continue
+            yield (BOUNDARY + b"\r\nContent-Type: image/jpeg\r\n"
+                   + f"Content-Length: {len(frame)}\r\n\r\n".encode()
+                   + frame)
+    return Response(generate(), mimetype="multipart/x-mixed-replace; boundary=FRAME")
 
 
 @app.route("/api/stream/stop", methods=["POST"])
@@ -299,7 +254,7 @@ def _stop_stream():
     if ffmpeg_proc:
         stop_process(ffmpeg_proc)
         ffmpeg_proc = None
-    # Clean up old HLS files
+    _stop_mjpeg()
     for f in STREAM_DIR.glob("*"):
         try:
             f.unlink()
@@ -324,10 +279,8 @@ def stream_config_ep():
             if p["resolution"] == stream_config["resolution"] and p["fps"] == stream_config["fps"]:
                 cp = n
                 break
-        return jsonify({
-            "status": "ok", "config": stream_config,
-            "presets": list(RES_PRESETS.keys()), "current_preset": cp
-        })
+        return jsonify({"status": "ok", "config": stream_config,
+                        "presets": list(RES_PRESETS.keys()), "current_preset": cp})
     data = request.get_json(silent=True) or {}
     if "preset" in data and data["preset"] in RES_PRESETS:
         stream_config.update(RES_PRESETS[data["preset"]])
@@ -352,8 +305,7 @@ def stream_status():
     return jsonify({"status": "ok", "running": running, "hls_ready": hls_ready,
         "config": stream_config,
         "channels": {k: {"enabled": v["enabled"], "name": v["name"]} for k, v in channels.items()},
-        "current_preset": cp,
-        "rtsp_active": channels["rtsp"]["enabled"]
+        "current_preset": cp
     })
 
 
@@ -384,13 +336,11 @@ def record_start():
     global record_proc
     if record_proc and record_proc.poll() is None:
         return jsonify({"status": "error", "message": "Already recording"}), 400
-
     data = request.get_json(silent=True) or {}
     rc = {**record_config}
     for k in ("quality", "mode", "segment_seconds", "destination"):
         if k in data:
             rc[k] = data[k]
-
     q = rc["quality"]
     if q == "same":
         res = stream_config["resolution"]
@@ -398,29 +348,24 @@ def record_start():
     else:
         res = "1280x720" if q == "720p" else "1920x1080"
         fps = 30
-
     now = datetime.now().strftime("%Y%m%d_%H%M%S")
     od = Path(rc["output_dir"])
     od.mkdir(parents=True, exist_ok=True)
-
     cmd = ["ffmpeg", "-y", "-f", "v4l2", "-input_format", "mjpeg",
            "-framerate", str(fps), "-video_size", res,
-           "-i", "/dev/video0", "-c:v", "h264_v4l2m2m",
-           "-b:v", "4M", "-preset", "ultrafast",
+           "-i", "/dev/video0", "-c:v", "libx264",
+           "-b:v", "4M", "-preset", "veryfast",
            "-use_wallclock_as_timestamps", "1"]
-
     if rc["mode"] == "segment":
         cmd += ["-f", "segment", "-segment_time", str(rc["segment_seconds"]),
                 "-reset_timestamps", "1", "-strftime", "1",
                 str(od / f"capture_{now}_%03d.mp4")]
     else:
         cmd += [str(od / f"capture_{now}.mp4")]
-
     record_proc = run_ffmpeg(cmd, "record")
     time.sleep(0.8)
     if record_proc and record_proc.poll() is not None:
-        _, err = record_proc.communicate()
-        return jsonify({"status": "error", "message": err[:500]}), 500
+        return jsonify({"status": "error", "message": f"ffmpeg exit {record_proc.returncode}"}), 500
     return jsonify({"status": "ok"})
 
 
@@ -439,12 +384,10 @@ def record_status():
     files = sorted(RECORD_DIR.glob("*.mp4"),
                    key=lambda f: f.stat().st_mtime, reverse=True)
     total_mb = sum(f.stat().st_size for f in files) / 1048576 if files else 0
-    return jsonify({
-        "status": "ok", "running": running,
+    return jsonify({"status": "ok", "running": running,
         "files": [{"name": f.name, "size_mb": round(f.stat().st_size / 1048576, 1)}
                   for f in files[:20]],
-        "disk_used_mb": total_mb
-    })
+        "disk_used_mb": total_mb})
 
 
 @app.route("/api/record/files/<path:filename>")
@@ -455,7 +398,7 @@ def record_download(filename):
     return send_file(str(fp), mimetype="video/mp4")
 
 
-# ── HLS segments (serve from STREAM_DIR) ──
+# ── HLS segments ──
 @app.route("/hls/<path:filename>")
 def serve_hls(filename):
     fp = STREAM_DIR / filename
@@ -467,7 +410,6 @@ def serve_hls(filename):
     return send_file(str(fp), mimetype=ct)
 
 
-# ── Recorded files ──
 @app.route("/recordings/<path:filename>")
 def serve_recording(filename):
     fp = RECORD_DIR / filename
@@ -477,11 +419,9 @@ def serve_recording(filename):
 
 
 # ═══════════════════════════════════════════
-# Chromecast ADB Remote Control
+# Chromecast ADB Remote
 # ═══════════════════════════════════════════
-
 def adb_cmd(args, timeout=5):
-    """Run adb command with timeout."""
     if not CC_HOST:
         return False, "CC_HOST not configured"
     full_cmd = ["adb", "-s", f"{CC_HOST}:{ADB_PORT}"] + args
@@ -505,18 +445,14 @@ def cc_connect():
     ok, out = adb_cmd(["connect", f"{CC_HOST}:{ADB_PORT}"], timeout=5)
     if ok and ("connected" in out or "already" in out):
         return jsonify({"status": "ok", "message": f"Connected to {CC_HOST}"})
-    return jsonify({"status": "error", "message": f"Failed to connect: {out}"}), 502
+    return jsonify({"status": "error", "message": f"Failed: {out}"}), 502
 
 
 @app.route("/api/cc/status", methods=["GET"])
 def cc_status():
     ok, out = adb_cmd(["get-state"])
-    return jsonify({
-        "status": "ok",
-        "connected": ok,
-        "host": CC_HOST,
-        "device_state": out if ok else "disconnected",
-    })
+    return jsonify({"status": "ok", "connected": ok,
+        "host": CC_HOST, "device_state": out if ok else "disconnected"})
 
 
 @app.route("/api/cc/nav/<key>", methods=["POST"])
@@ -586,7 +522,7 @@ def cc_screenshot():
     return jsonify({"status": "error", "message": "screenshot not found"}), 500
 
 
-# ── Web UI (catch-all — MUST be last) ──
+# ── Web UI (catch-all) ──
 @app.route("/")
 def serve_index():
     return send_from_directory(str(WEB_UI_DIR), "index.html")
@@ -594,24 +530,18 @@ def serve_index():
 
 @app.route("/<path:filename>")
 def serve_ui(filename):
-    """Serve static files (JS, CSS, assets), fallback to index.html for SPA."""
     if not filename:
         return send_from_directory(str(WEB_UI_DIR), "index.html")
     fp = WEB_UI_DIR / filename
-    # Only serve files that actually exist as static assets
     if fp.exists() and fp.is_file():
-        # Map extensions to MIME types
         ext = fp.suffix.lower()
         if ext in ('.html', '.js', '.css', '.png', '.jpg', '.jpeg', '.gif',
-                   '.svg', '.ico', '.webp', '.woff', '.woff2', '.json',
-                   '.map', '.txt'):
+                   '.svg', '.ico', '.webp', '.woff', '.woff2', '.json', '.map', '.txt'):
             return send_from_directory(str(WEB_UI_DIR), filename)
-    # SPA fallback — everything else returns index.html
     return send_from_directory(str(WEB_UI_DIR), "index.html")
 
 
 if __name__ == "__main__":
     app.logger.info(f"TV-STREAM Backend starting on port {PORT}")
     app.logger.info(f"WEB_UI_DIR={WEB_UI_DIR}")
-    app.logger.info(f"Web files exist: {list(WEB_UI_DIR.glob('*')) if WEB_UI_DIR.exists() else 'DIR NOT FOUND'}")
     app.run(host="0.0.0.0", port=PORT, debug=False)

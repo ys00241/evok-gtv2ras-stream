@@ -4,7 +4,6 @@ const API_BASE = '/api';
 let hlsPlayers = {};
 let pollInterval = null;
 let streamUrl = '';
-let rtspUrl = '';
 
 // ─── Tab Navigation ───
 document.querySelectorAll('.nav-tab').forEach(tab => {
@@ -81,7 +80,7 @@ async function loadChannels() {
   if (data.status !== 'ok') return;
   const ch = data.channels;
   document.getElementById('ch-hls').checked = ch.hls?.enabled || false;
-  document.getElementById('ch-rtsp').checked = ch.rtsp?.enabled || false;
+  document.getElementById('ch-mjpeg').checked = ch.mjpeg?.enabled || false;
   document.getElementById('ch-teams').checked = ch.teams?.enabled || false;
   document.getElementById('ch-telegram').checked = ch.telegram?.enabled || false;
   if (ch.teams) {
@@ -97,9 +96,7 @@ async function loadCCStatus() {
   const data = await api('GET', '/cc/status');
   const el = document.getElementById('ccConnected');
   if (!el) return;
-  // CC remote not deployed → hide the row
   if (data.cc_available === false || data.message === 'CC Remote service not deployed') {
-    // Check if there's a parent stat-row to hide
     const row = el.closest('.stat-row');
     if (row) row.style.display = 'none';
     return;
@@ -120,11 +117,9 @@ async function loadStreamUrl() {
   initPlayer('playerVideo', streamUrl);
   const ev = document.getElementById('expandVideo');
   if (ev && !ev.src) initPlayer('expandVideo', streamUrl);
-  // RTSP — mediamtx always runs on port 8554 independently
-  const hostname = window.location.hostname;
-  rtspUrl = `rtsp://${hostname}:8554/live`;
-  document.getElementById('rtspUrl').textContent = rtspUrl;
-  document.getElementById('rtspUrlRow').style.display = 'flex';
+  // MJPEG URL (zero CPU)
+  const mjpegUrl = `http://${base}/api/stream/mjpeg`;
+  document.getElementById('mjpegUrl').textContent = mjpegUrl;
 }
 
 // ─── Buttons: Stream ───
@@ -157,20 +152,19 @@ document.getElementById('btnPresetApply').addEventListener('click', async () => 
 // ─── Buttons: Channels ───
 document.getElementById('btnChannelApply').addEventListener('click', async () => {
   const hls = document.getElementById('ch-hls').checked;
-  const rtsp = document.getElementById('ch-rtsp').checked;
+  const mjpeg = document.getElementById('ch-mjpeg').checked;
   const teams = document.getElementById('ch-teams').checked;
   const tg = document.getElementById('ch-telegram').checked;
   const teamsUrl = document.getElementById('teamsUrl').value;
   const teamsKey = document.getElementById('teamsKey').value;
   const tgUrl = document.getElementById('tgUrl').value;
   await api('PUT', '/channel/hls', { enabled: hls });
-  await api('PUT', '/channel/rtsp', { enabled: rtsp });
+  await api('PUT', '/channel/mjpeg', { enabled: mjpeg });
   await api('PUT', '/channel/teams', { enabled: teams, rtmp_url: teamsUrl, rtmp_key: teamsKey });
   await api('PUT', '/channel/telegram', { enabled: tg, rtmp_url: tgUrl });
   toast('Channels updated', 'success');
   loadChannels();
   loadStatus();
-  loadStreamUrl();
 });
 
 document.getElementById('ch-teams').addEventListener('change', toggleChannelConfig);
@@ -180,15 +174,12 @@ function toggleChannelConfig() {
   document.getElementById('channelConfig').style.display = show ? 'block' : 'none';
 }
 
-// ─── Remote Control（CC remote optional — missing API returns gracefully）───
-
-// Try connect on page load — no error if not deployed
+// ─── Remote Control ───
 setTimeout(async () => {
   const r = await api('POST', '/cc/connect', {});
   if (r.status === 'ok') toast('Chromecast connected!', 'success');
 }, 1000);
 
-// D-Pad
 document.querySelectorAll('.btn-dpad').forEach(btn => {
   btn.addEventListener('click', () => api('POST', `/cc/nav/${btn.dataset.key}`));
   let timer = null;
@@ -203,7 +194,6 @@ document.querySelectorAll('.btn-nav').forEach(btn => {
   btn.addEventListener('click', () => api('POST', `/cc/nav/${btn.dataset.key}`));
 });
 
-// Volume
 document.querySelectorAll('.btn-vol, .btn-vol-mute').forEach(btn => {
   btn.addEventListener('click', () => {
     const action = btn.dataset.vol;
@@ -214,7 +204,6 @@ document.querySelectorAll('.btn-vol, .btn-vol-mute').forEach(btn => {
   });
 });
 
-// Apps
 document.querySelectorAll('.btn-app').forEach(btn => {
   btn.addEventListener('click', () => {
     api('POST', `/cc/app/${btn.dataset.app}`);
@@ -222,7 +211,6 @@ document.querySelectorAll('.btn-app').forEach(btn => {
   });
 });
 
-// Text
 document.getElementById('btnCcText').addEventListener('click', () => {
   const text = document.getElementById('ccTextInput').value;
   if (!text) return;
@@ -230,7 +218,6 @@ document.getElementById('btnCcText').addEventListener('click', () => {
   document.getElementById('ccTextInput').value = '';
 });
 
-// Screenshot
 document.getElementById('btnScreenshot').addEventListener('click', async () => {
   try {
     const r = await fetch(`${API_BASE}/cc/screenshot?_=${Date.now()}`);
@@ -244,7 +231,6 @@ document.getElementById('btnScreenshot').addEventListener('click', async () => {
   } catch (e) { toast('Screenshot error', 'error'); }
 });
 
-// Expand / Collapse
 document.getElementById('btnExpandScreen').addEventListener('click', () => {
   document.getElementById('expandPreviewCard').style.display = 'block';
   document.getElementById('btnExpandScreen').textContent = '🔴 Live';

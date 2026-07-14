@@ -12,7 +12,7 @@
 <body>
   <!-- ─── Navigation Bar ─── -->
   <nav id="navbar">
-    <div class="nav-brand">TV-STREAM <span style="font-size:12px;color:var(--accent);font-weight:400">v0.8-RTSP</span></div>
+    <div class="nav-brand">TV-STREAM <span style="font-size:12px;color:var(--accent);font-weight:400">v1.0-MJPEG</span></div>
     <div class="nav-tabs" id="navTabs">
       <button class="nav-tab active" data-tab="dashboard">📊 Dashboard</button>
       <button class="nav-tab" data-tab="control">🎮 Remote</button>
@@ -91,8 +91,8 @@
             <span class="toggle-slider"></span>
           </label>
           <label class="channel-toggle">
-            <span>📡 RTSP</span>
-            <input type="checkbox" id="ch-rtsp">
+            <span>📸 HTTP MJPEG</span>
+            <input type="checkbox" id="ch-mjpeg">
             <span class="toggle-slider"></span>
           </label>
           <label class="channel-toggle">
@@ -210,13 +210,13 @@
           <span>🎥 HLS URL:</span>
           <span><code id="streamUrl">---</code></span>
         </div>
-        <div class="stat-row" id="rtspUrlRow" style="display:none">
-          <span>📡 RTSP URL:</span>
-          <span><code id="rtspUrl">---</code></span>
+        <div class="stat-row">
+          <span>📸 MJPEG URL:</span>
+          <span><code id="mjpegUrl">---</code></span>
         </div>
         <div class="stat-row">
-          <span>📺 VLC:</span>
-          <span style="font-size:12px">Open RTSP URL → Media → Open Network Stream</span>
+          <span>🌐 Browser:</span>
+          <span style="font-size:12px">Open MJPEG URL in browser / VLC / img tag — zero delay</span>
         </div>
         <div class="btn-row" style="margin-top:8px">
           <button class="btn btn-primary" id="btnCopyUrl">📋 Copy URL</button>
