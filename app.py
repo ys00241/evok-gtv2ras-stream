@@ -29,7 +29,6 @@ RECORD_DIR.mkdir(parents=True, exist_ok=True)
 # ─── State ───
 ffmpeg_proc = None
 record_proc = None
-mjpeg_proc = None
 
 stream_config = {
     "resolution": "1280x720", "fps": 30, "bitrate": "4M",
@@ -87,43 +86,87 @@ def detect_audio_device():
 
 # ─── ffmpeg helpers ───
 def make_ffmpeg_cmd():
-    """HLS software encode command."""
+    """Single ffmpeg command for ALL enabled channels (HLS + MJPEG etc.).
+    /dev/video0 can only be opened once — everything must be in one process."""
     cfg = stream_config
-    vcodec = cfg["hw_encoder"]
+    audio_device = detect_audio_device()
     cmd = ["ffmpeg", "-y",
            "-thread_queue_size", "512",
            "-f", "v4l2", "-input_format", "mjpeg",
            "-framerate", str(cfg["fps"]), "-video_size", cfg["resolution"],
            "-i", "/dev/video0"]
-    audio_device = detect_audio_device()
     if audio_device:
         cmd += ["-thread_queue_size", "512", "-f", "alsa", "-i", audio_device]
     cmd += ["-use_wallclock_as_timestamps", "1"]
-    cmd += ["-c:v", vcodec, "-b:v", cfg["bitrate"],
-            "-preset", "veryfast", "-pix_fmt", "yuv420p"]
-    if audio_device:
-        cmd += ["-c:a", "aac", "-b:a", "128k", "-ar", "48000"]
-    cmd += ["-f", "hls", "-hls_time", "1", "-hls_list_size", "5",
-            "-hls_flags", "delete_segments+omit_endlist",
-            "-hls_segment_type", "mpegts",
-            str(STREAM_DIR / "stream.m3u8")]
-    return cmd
 
+    active = [ch for ch, info in channels.items() if info["enabled"]]
+    n = len(active)
 
-def make_mjpeg_cmd():
-    """Zero-CPU MJPEG pipe command (copy mode, no encode)."""
-    cfg = stream_config
-    cmd = ["ffmpeg", "-y",
-           "-thread_queue_size", "512",
-           "-f", "v4l2", "-input_format", "mjpeg",
-           "-framerate", str(cfg["fps"]), "-video_size", cfg["resolution"],
-           "-i", "/dev/video0"]
-    audio_device = detect_audio_device()
-    if audio_device:
-        cmd += ["-thread_queue_size", "512", "-f", "alsa", "-i", audio_device]
-        cmd += ["-c:a", "aac", "-b:a", "128k", "-ar", "48000", "-ac", "2"]
-    cmd += ["-c:v", "copy", "-f", "image2pipe", "-"]
-    return cmd
+    if n == 0:
+        return None
+
+    has_hls = channels["hls"]["enabled"]
+    has_mjpeg = channels["mjpeg"]["enabled"]
+
+    # ── Single output ──
+    if n == 1:
+        if has_mjpeg:
+            # MJPEG only: zero CPU copy mode
+            cmd += ["-c:v", "copy"]
+            if audio_device:
+                cmd += ["-c:a", "aac", "-b:a", "128k", "-ar", "48000", "-ac", "2"]
+            cmd += ["-f", "image2pipe", "-"]
+            return cmd, "pipe"
+        elif has_hls:
+            # HLS only: software encode
+            cmd += ["-c:v", "libx264", "-b:v", cfg["bitrate"],
+                    "-preset", "veryfast", "-pix_fmt", "yuv420p"]
+            if audio_device:
+                cmd += ["-c:a", "aac", "-b:a", "128k", "-ar", "48000"]
+            cmd += ["-f", "hls", "-hls_time", "1", "-hls_list_size", "5",
+                    "-hls_flags", "delete_segments+omit_endlist",
+                    "-hls_segment_type", "mpegts",
+                    str(STREAM_DIR / "stream.m3u8")]
+            return cmd, "hls"
+        elif channels["teams"]["enabled"] and channels["teams"]["rtmp_url"]:
+            cmd += ["-c:v", "libx264", "-b:v", "2M", "-preset", "veryfast", "-pix_fmt", "yuv420p"]
+            if audio_device: cmd += ["-c:a", "aac", "-b:a", "128k"]
+            cmd += ["-f", "flv", f"{channels['teams']['rtmp_url']}/{channels['teams']['rtmp_key']}"]
+            return cmd, "hls"
+        elif channels["telegram"]["enabled"] and channels["telegram"]["rtmp_url"]:
+            cmd += ["-c:v", "libx264", "-b:v", "2M", "-preset", "veryfast", "-pix_fmt", "yuv420p"]
+            if audio_device: cmd += ["-c:a", "aac", "-b:a", "128k"]
+            cmd += ["-f", "flv", channels["telegram"]["rtmp_url"]]
+            return cmd, "hls"
+
+    # ── Dual output: HLS + MJPEG (most common) ──
+    if has_hls and has_mjpeg:
+        # split video: HLS gets libx264 encode, MJPEG gets copy
+        if audio_device:
+            cmd += ["-filter_complex", "split=2[v0][v1]; asplit=2[a0][a1]"]
+        else:
+            cmd += ["-filter_complex", "split=2[v0][v1]"]
+        # HLS output (encode)
+        cmd += ["-map", "[v0]"]
+        if audio_device: cmd += ["-map", "[a0]"]
+        cmd += ["-c:v", "libx264", "-b:v", cfg["bitrate"],
+                "-preset", "veryfast", "-pix_fmt", "yuv420p"]
+        if audio_device: cmd += ["-c:a", "aac", "-b:a", "128k", "-ar", "48000"]
+        cmd += ["-f", "hls", "-hls_time", "1", "-hls_list_size", "5",
+                "-hls_flags", "delete_segments+omit_endlist",
+                "-hls_segment_type", "mpegts",
+                str(STREAM_DIR / "stream.m3u8")]
+        # MJPEG output (copy)
+        cmd += ["-map", "[v1]"]
+        if audio_device: cmd += ["-map", "[a1]"]
+        cmd += ["-c:v", "copy"]
+        if audio_device: cmd += ["-c:a", "aac", "-b:a", "128k", "-ar", "48000"]
+        cmd += ["-f", "image2pipe", "-"]
+        return cmd, "pipe+hls"
+
+    # ── Fallback ──
+    app.logger.warning(f"[stream] Unexpected channel combo: {active}")
+    return None
 
 
 def run_ffmpeg(cmd, tag="ffmpeg"):
@@ -180,8 +223,6 @@ def system_info():
 @app.route("/api/stream/start", methods=["POST"])
 def stream_start():
     result = _start_stream()
-    if result.get("status") == "ok" and channels["mjpeg"]["enabled"]:
-        _start_mjpeg()
     return jsonify(result), 500 if result.get("status") == "error" else 200
 
 
@@ -190,9 +231,16 @@ def _start_stream():
     try:
         if ffmpeg_proc and ffmpeg_proc.poll() is None:
             return {"status": "already_running"}
-        cmd = make_ffmpeg_cmd()
+        result = make_ffmpeg_cmd()
+        if result is None:
+            return {"status": "error", "message": "No channels enabled"}
+        cmd, _mode = result
         app.logger.info(f"[stream] Starting: {' '.join(cmd)}")
-        ffmpeg_proc = run_ffmpeg(cmd)
+        # If MJPEG enabled, capture stdout for HTTP streaming
+        stdout_target = subprocess.PIPE if channels["mjpeg"]["enabled"] else subprocess.DEVNULL
+        ffmpeg_proc = subprocess.Popen(cmd, stdout=stdout_target, stderr=subprocess.DEVNULL,
+                                       bufsize=0,
+                                       preexec_fn=lambda: signal.signal(signal.SIGTERM, lambda s, f: None))
         time.sleep(1.5)
         if ffmpeg_proc.poll() is not None:
             app.logger.error(f"[stream] ffmpeg died. exit={ffmpeg_proc.returncode}")
@@ -203,38 +251,18 @@ def _start_stream():
         return {"status": "error", "message": str(e)}
 
 
-def _start_mjpeg():
-    global mjpeg_proc
-    try:
-        stop_process(mjpeg_proc)
-        cmd = make_mjpeg_cmd()
-        app.logger.info(f"[mjpeg] Starting: {' '.join(cmd)}")
-        mjpeg_proc = subprocess.Popen(cmd, stdout=subprocess.PIPE, stderr=subprocess.DEVNULL, bufsize=0)
-        time.sleep(0.5)
-        if mjpeg_proc.poll() is not None:
-            app.logger.error(f"[mjpeg] died. exit={mjpeg_proc.returncode}")
-            mjpeg_proc = None
-    except Exception as e:
-        app.logger.exception(f"[mjpeg] start error: {e}")
-        mjpeg_proc = None
-
-
-def _stop_mjpeg():
-    global mjpeg_proc
-    stop_process(mjpeg_proc)
-    mjpeg_proc = None
-
-
+# ── MJPEG endpoint reads from main ffmpeg process stdout (video pipe) ──
 @app.route("/api/stream/mjpeg")
 def stream_mjpeg():
-    """HTTP MJPEG streaming — zero CPU, multipart/x-mixed-replace."""
+    """HTTP MJPEG streaming — zero CPU, multipart/x-mixed-replace.
+    Reads from the main ffmpeg process stdout (image2pipe output)."""
     def generate():
         BOUNDARY = b"FRAME"
         while True:
-            if mjpeg_proc is None or mjpeg_proc.poll() is not None:
+            if ffmpeg_proc is None or ffmpeg_proc.poll() is not None or ffmpeg_proc.stdout is None:
                 yield BOUNDARY + b"\r\nContent-Type: text/plain\r\n\r\nStream ended\r\n"
                 break
-            frame = mjpeg_proc.stdout.read(65536)
+            frame = ffmpeg_proc.stdout.read(65536)
             if not frame or len(frame) < 100:
                 time.sleep(0.05)
                 continue
@@ -254,7 +282,6 @@ def _stop_stream():
     if ffmpeg_proc:
         stop_process(ffmpeg_proc)
         ffmpeg_proc = None
-    _stop_mjpeg()
     for f in STREAM_DIR.glob("*"):
         try:
             f.unlink()
