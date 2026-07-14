@@ -1,10 +1,10 @@
-# MediaMTX config — force RTSP TCP only for stable low-latency
-rtsp:
-  protocols: [tcp]
-rtmp: {}
-hls: {}
-webrtc: {}
-record: false
+# MediaMTX config — RTSP TCP only, RTMP enabled for ffmpeg push
+rtsp: true
+rtspTransports: [tcp]
+rtmp: true
+hls: false
+webrtc: false
+srt: false
 
 paths:
   live:
