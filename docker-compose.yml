@@ -9,6 +9,7 @@ services:
     pull_policy: always
     ports:
       - "8964:6489"
+      - "8554:8554"
     devices:
       - /dev/video0:/dev/video0
       - /dev/snd:/dev/snd
@@ -27,33 +28,9 @@ services:
       - CC_HOST=192.168.0.???
       - ADB_PORT=5555
       - AUDIO_DEV=hw:1,0
-      - RTSP_PUSH_URL=rtmp://mediamtx:1935/live
     command: ["python", "app.py"]
     restart: unless-stopped
     stop_grace_period: 10s
-    depends_on:
-      - mediamtx
-
-  # ──────────────────────────────────────────────
-  # MediaMTX — RTSP/RTMP server for low-latency
-  # VLC → rtsp://192.168.1.222:8554/live
-  # Config via MTX_ env vars (no file mount needed)
-  # ──────────────────────────────────────────────
-  mediamtx:
-    image: bluenviron/mediamtx:latest
-    pull_policy: always
-    ports:
-      - "8554:8554"
-    environment:
-      - MTX_RTSP=yes
-      - MTX_RTSPTRANSPORTS=tcp
-      - MTX_RTSPADDRESS=:8554
-      - MTX_RTMP=yes
-      - MTX_HLS=no
-      - MTX_WEBRTC=no
-      - MTX_SRT=no
-      - MTX_PATHS_LIVE_SOURCE=publisher
-    restart: unless-stopped
 
   # ──────────────────────────────────────────────
   # Chromecast ADB Remote (merged into backend)

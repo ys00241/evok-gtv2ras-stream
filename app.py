@@ -109,32 +109,78 @@ def make_ffmpeg_cmd():
     n = len(active)
     if n == 0:
         return None
-    vcodec = cfg["hw_encoder"]
-    acodec_opts = ["-c:a", "aac", "-b:a", "128k", "-ar", "48000"] if audio_device else []
-    # low-latency encoding opts per output
-    enc_opts = ["-c:v", vcodec, "-b:v", cfg["bitrate"],
-                "-preset", "veryfast", "-pix_fmt", "yuv420p",
-                "-g", "30", "-keyint_min", "30",
-                "-tune", "zerolatency", "-flags", "low_delay"]
-    # ── Single output: global codec opts, no filter_complex ──
+    # ── Single output ──
     if n == 1:
-        cmd += enc_opts
-        if audio_device:
-            cmd += ["-c:a", "aac", "-b:a", "128k", "-ar", "48000"]
-        if channels["hls"]["enabled"]:
+        if channels["rtsp"]["enabled"]:
+            # RTSP: MJPG copy = zero CPU
+            cmd += ["-c:v", "copy"]
+            if audio_device:
+                cmd += ["-c:a", "aac", "-b:a", "128k", "-ar", "48000"]
+            cmd += ["-f", "rtsp", "-listen", "1", "rtsp://0.0.0.0:8554/live"]
+        elif channels["hls"]["enabled"]:
+            # HLS: software encode (CPU heavy)
+            vcodec = cfg["hw_encoder"]
+            cmd += ["-c:v", vcodec, "-b:v", cfg["bitrate"],
+                    "-preset", "veryfast", "-pix_fmt", "yuv420p",
+                    "-g", "30", "-keyint_min", "30"]
+            if audio_device:
+                cmd += ["-c:a", "aac", "-b:a", "128k", "-ar", "48000"]
             cmd += ["-f", "hls", "-hls_time", "1", "-hls_list_size", "5",
                     "-hls_flags", "delete_segments+omit_endlist",
                     "-hls_segment_type", "mpegts",
                     str(STREAM_DIR / "stream.m3u8")]
-        elif channels["rtsp"]["enabled"]:
-            push_url = os.environ.get("RTSP_PUSH_URL", "rtmp://mediamtx:1935/live")
-            cmd += ["-f", "flv", "-flvflags", "no_duration_filesize", push_url]
         elif channels["teams"]["enabled"] and channels["teams"]["rtmp_url"]:
+            cmd += ["-c:v", "libx264", "-b:v", "2M", "-preset", "veryfast",
+                    "-pix_fmt", "yuv420p"] + (["-c:a", "aac", "-b:a", "128k"] if audio_device else [])
             cmd += ["-f", "flv", f"{channels['teams']['rtmp_url']}/{channels['teams']['rtmp_key']}"]
         elif channels["telegram"]["enabled"] and channels["telegram"]["rtmp_url"]:
+            cmd += ["-c:v", "libx264", "-b:v", "2M", "-preset", "veryfast",
+                    "-pix_fmt", "yuv420p"] + (["-c:a", "aac", "-b:a", "128k"] if audio_device else [])
             cmd += ["-f", "flv", channels["telegram"]["rtmp_url"]]
         return cmd
-    # ── Multiple outputs: filter_complex split + per-output codec ──
+    # ── Multiple outputs (HLS + RTSP most common) ──
+    # RTSP copy needs special handling: split then one branch copy, other encode
+    has_hls = channels["hls"]["enabled"]
+    has_rtsp = channels["rtsp"]["enabled"]
+    if has_hls and has_rtsp and n == 2:
+        # Split video: HLS gets libx264, RTSP gets MJPG copy
+        # Split audio: both get same AAC if present
+        cmd += ["-filter_complex", "split=2[v0][v1]"]
+        if audio_device:
+            cmd += ["-filter_complex", "split=2[v0][v1]; asplit=2[a0][a1]"]
+            # HLS output
+            cmd += ["-map", "[v0]", "-map", "[a0]",
+                    "-c:v", "libx264", "-b:v", cfg["bitrate"],
+                    "-preset", "veryfast", "-pix_fmt", "yuv420p",
+                    "-c:a", "aac", "-b:a", "128k", "-ar", "48000",
+                    "-f", "hls", "-hls_time", "1", "-hls_list_size", "5",
+                    "-hls_flags", "delete_segments+omit_endlist",
+                    "-hls_segment_type", "mpegts",
+                    str(STREAM_DIR / "stream.m3u8")]
+            # RTSP output (MJPG copy)
+            cmd += ["-map", "[v1]", "-map", "[a1]",
+                    "-c:v", "copy",
+                    "-c:a", "aac", "-b:a", "128k", "-ar", "48000",
+                    "-f", "rtsp", "-listen", "1", "rtsp://0.0.0.0:8554/live"]
+        else:
+            # No audio
+            cmd += ["-map", "[v0]",
+                    "-c:v", "libx264", "-b:v", cfg["bitrate"],
+                    "-preset", "veryfast", "-pix_fmt", "yuv420p",
+                    "-f", "hls", "-hls_time", "1", "-hls_list_size", "5",
+                    "-hls_flags", "delete_segments+omit_endlist",
+                    "-hls_segment_type", "mpegts",
+                    str(STREAM_DIR / "stream.m3u8")]
+            cmd += ["-map", "[v1]",
+                    "-c:v", "copy",
+                    "-f", "rtsp", "-listen", "1", "rtsp://0.0.0.0:8554/live"]
+        return cmd
+    # ── Fallback for other combos (encode everything) ──
+    # (Shouldn't be needed often — just encode with veryfast)
+    vcodec = cfg["hw_encoder"]
+    acodec_opts = ["-c:a", "aac", "-b:a", "128k", "-ar", "48000"] if audio_device else []
+    enc_opts = ["-c:v", vcodec, "-b:v", cfg["bitrate"],
+                "-preset", "veryfast", "-pix_fmt", "yuv420p"]
     v_tags = "".join([f"[v{i}]" for i in range(n)])
     a_tags = "".join([f"[a{i}]" for i in range(n)])
     if audio_device:
@@ -142,38 +188,26 @@ def make_ffmpeg_cmd():
     else:
         cmd += ["-filter_complex", f"split={n}{v_tags}"]
     idx = 0
-    if channels["hls"]["enabled"]:
+    for ch, info in channels.items():
+        if not info["enabled"]:
+            continue
         cmd += ["-map", f"[v{idx}]"]
         if audio_device:
             cmd += ["-map", f"[a{idx}]"]
         idx += 1
         cmd += enc_opts + acodec_opts
-        cmd += ["-f", "hls", "-hls_time", "1", "-hls_list_size", "5",
-                "-hls_flags", "delete_segments+omit_endlist",
-                "-hls_segment_type", "mpegts",
-                str(STREAM_DIR / "stream.m3u8")]
-    if channels["rtsp"]["enabled"]:
-        cmd += ["-map", f"[v{idx}]"]
-        if audio_device:
-            cmd += ["-map", f"[a{idx}]"]
-        idx += 1
-        push_url = os.environ.get("RTSP_PUSH_URL", "rtmp://mediamtx:1935/live")
-        cmd += enc_opts + acodec_opts
-        cmd += ["-f", "flv", "-flvflags", "no_duration_filesize", push_url]
-    if channels["teams"]["enabled"] and channels["teams"]["rtmp_url"]:
-        cmd += ["-map", f"[v{idx}]"]
-        if audio_device:
-            cmd += ["-map", f"[a{idx}]"]
-        idx += 1
-        cmd += enc_opts + acodec_opts
-        cmd += ["-f", "flv", f"{channels['teams']['rtmp_url']}/{channels['teams']['rtmp_key']}"]
-    if channels["telegram"]["enabled"] and channels["telegram"]["rtmp_url"]:
-        cmd += ["-map", f"[v{idx}]"]
-        if audio_device:
-            cmd += ["-map", f"[a{idx}]"]
-        idx += 1
-        cmd += enc_opts + acodec_opts
-        cmd += ["-f", "flv", channels["telegram"]["rtmp_url"]]
+        if ch == "hls":
+            cmd += ["-f", "hls", "-hls_time", "1", "-hls_list_size", "5",
+                    "-hls_flags", "delete_segments+omit_endlist",
+                    "-hls_segment_type", "mpegts",
+                    str(STREAM_DIR / "stream.m3u8")]
+        elif ch == "rtsp":
+            push_url = os.environ.get("RTSP_PUSH_URL", "rtmp://mediamtx:1935/live")
+            cmd += ["-f", "flv", "-flvflags", "no_duration_filesize", push_url]
+        elif ch == "teams" and info.get("rtmp_url"):
+            cmd += ["-f", "flv", f"{info['rtmp_url']}/{info['rtmp_key']}"]
+        elif ch == "telegram" and info.get("rtmp_url"):
+            cmd += ["-f", "flv", info["rtmp_url"]]
     return cmd
 
 
