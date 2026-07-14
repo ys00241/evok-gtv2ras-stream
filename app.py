@@ -111,10 +111,14 @@ def make_ffmpeg_cmd():
         return None
     vcodec = cfg["hw_encoder"]
     acodec_opts = ["-c:a", "aac", "-b:a", "128k", "-ar", "48000"] if audio_device else []
+    # low-latency encoding opts per output
+    enc_opts = ["-c:v", vcodec, "-b:v", cfg["bitrate"],
+                "-preset", "veryfast", "-pix_fmt", "yuv420p",
+                "-g", "30", "-keyint_min", "30",
+                "-tune", "zerolatency", "-flags", "low_delay"]
     # ── Single output: global codec opts, no filter_complex ──
     if n == 1:
-        cmd += ["-c:v", vcodec, "-b:v", cfg["bitrate"],
-                "-preset", "ultrafast", "-pix_fmt", "yuv420p"]
+        cmd += enc_opts
         if audio_device:
             cmd += ["-c:a", "aac", "-b:a", "128k", "-ar", "48000"]
         if channels["hls"]["enabled"]:
@@ -143,8 +147,7 @@ def make_ffmpeg_cmd():
         if audio_device:
             cmd += ["-map", f"[a{idx}]"]
         idx += 1
-        cmd += ["-c:v", vcodec, "-b:v", cfg["bitrate"],
-                "-preset", "ultrafast", "-pix_fmt", "yuv420p"] + acodec_opts
+        cmd += enc_opts + acodec_opts
         cmd += ["-f", "hls", "-hls_time", "1", "-hls_list_size", "5",
                 "-hls_flags", "delete_segments+omit_endlist",
                 "-hls_segment_type", "mpegts",
@@ -155,24 +158,21 @@ def make_ffmpeg_cmd():
             cmd += ["-map", f"[a{idx}]"]
         idx += 1
         push_url = os.environ.get("RTSP_PUSH_URL", "rtmp://mediamtx:1935/live")
-        cmd += ["-c:v", vcodec, "-b:v", cfg["bitrate"],
-                "-preset", "ultrafast", "-pix_fmt", "yuv420p"] + acodec_opts
+        cmd += enc_opts + acodec_opts
         cmd += ["-f", "flv", "-flvflags", "no_duration_filesize", push_url]
     if channels["teams"]["enabled"] and channels["teams"]["rtmp_url"]:
         cmd += ["-map", f"[v{idx}]"]
         if audio_device:
             cmd += ["-map", f"[a{idx}]"]
         idx += 1
-        cmd += ["-c:v", vcodec, "-b:v", cfg["bitrate"],
-                "-preset", "ultrafast", "-pix_fmt", "yuv420p"] + acodec_opts
+        cmd += enc_opts + acodec_opts
         cmd += ["-f", "flv", f"{channels['teams']['rtmp_url']}/{channels['teams']['rtmp_key']}"]
     if channels["telegram"]["enabled"] and channels["telegram"]["rtmp_url"]:
         cmd += ["-map", f"[v{idx}]"]
         if audio_device:
             cmd += ["-map", f"[a{idx}]"]
         idx += 1
-        cmd += ["-c:v", vcodec, "-b:v", cfg["bitrate"],
-                "-preset", "ultrafast", "-pix_fmt", "yuv420p"] + acodec_opts
+        cmd += enc_opts + acodec_opts
         cmd += ["-f", "flv", channels["telegram"]["rtmp_url"]]
     return cmd
 
