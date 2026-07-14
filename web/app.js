@@ -120,16 +120,11 @@ async function loadStreamUrl() {
   initPlayer('playerVideo', streamUrl);
   const ev = document.getElementById('expandVideo');
   if (ev && !ev.src) initPlayer('expandVideo', streamUrl);
-  // Also get RTSP URL from status
-  const statusData = await api('GET', '/stream/status');
-  if (statusData.rtsp_active) {
-    const hostname = window.location.hostname;
-    rtspUrl = `rtsp://${hostname}:8554/live`;
-    document.getElementById('rtspUrl').textContent = rtspUrl;
-    document.getElementById('rtspUrlRow').style.display = 'flex';
-  } else {
-    document.getElementById('rtspUrlRow').style.display = 'none';
-  }
+  // RTSP — mediamtx always runs on port 8554 independently
+  const hostname = window.location.hostname;
+  rtspUrl = `rtsp://${hostname}:8554/live`;
+  document.getElementById('rtspUrl').textContent = rtspUrl;
+  document.getElementById('rtspUrlRow').style.display = 'flex';
 }
 
 // ─── Buttons: Stream ───
