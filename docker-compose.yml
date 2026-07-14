@@ -37,14 +37,22 @@ services:
   # ──────────────────────────────────────────────
   # MediaMTX — RTSP/RTMP server for low-latency
   # VLC → rtsp://192.168.1.222:8554/live
+  # Config via MTX_ env vars (no file mount needed)
   # ──────────────────────────────────────────────
   mediamtx:
     image: bluenviron/mediamtx:latest
     pull_policy: always
     ports:
       - "8554:8554"
-    volumes:
-      - ./mediamtx.yml:/mediamtx.yml:ro
+    environment:
+      - MTX_RTSP=yes
+      - MTX_RTSPTRANSPORTS=tcp
+      - MTX_RTSPADDRESS=:8554
+      - MTX_RTMP=yes
+      - MTX_HLS=no
+      - MTX_WEBRTC=no
+      - MTX_SRT=no
+      - MTX_PATHS_LIVE_SOURCE=publisher
     restart: unless-stopped
 
   # ──────────────────────────────────────────────
