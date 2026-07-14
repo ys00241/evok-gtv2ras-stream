@@ -120,7 +120,7 @@ def make_ffmpeg_cmd():
         if channels["hls"]["enabled"]:
             cmd += ["-f", "hls", "-hls_time", "1", "-hls_list_size", "5",
                     "-hls_flags", "delete_segments+omit_endlist",
-                    "-hls_segment_type", "mpegts", "-progress", "-",
+                    "-hls_segment_type", "mpegts",
                     str(STREAM_DIR / "stream.m3u8")]
         elif channels["rtsp"]["enabled"]:
             push_url = os.environ.get("RTSP_PUSH_URL", "rtmp://mediamtx:1935/live")
@@ -147,7 +147,7 @@ def make_ffmpeg_cmd():
                 "-preset", "ultrafast", "-pix_fmt", "yuv420p"] + acodec_opts
         cmd += ["-f", "hls", "-hls_time", "1", "-hls_list_size", "5",
                 "-hls_flags", "delete_segments+omit_endlist",
-                "-hls_segment_type", "mpegts", "-progress", "-",
+                "-hls_segment_type", "mpegts",
                 str(STREAM_DIR / "stream.m3u8")]
     if channels["rtsp"]["enabled"]:
         cmd += ["-map", f"[v{idx}]"]
@@ -179,7 +179,7 @@ def make_ffmpeg_cmd():
 
 def run_ffmpeg(cmd, tag="ffmpeg"):
     app.logger.info(f"[{tag}] {' '.join(cmd)}")
-    return subprocess.Popen(cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE,
+    return subprocess.Popen(cmd, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
                             preexec_fn=lambda: signal.signal(signal.SIGTERM, lambda s, f: None))
 
 
@@ -247,11 +247,8 @@ def _start_stream():
         ffmpeg_proc = run_ffmpeg(cmd)
         time.sleep(1.5)
         if ffmpeg_proc.poll() is not None:
-            out, err = ffmpeg_proc.communicate()
-            err_text = (err or b"").decode("utf-8", errors="replace")[:5000]
-            out_text = (out or b"").decode("utf-8", errors="replace")[:500]
-            app.logger.error(f"[stream] ffmpeg died. exit={ffmpeg_proc.returncode}\nstderr:\n{err_text}\nstdout:\n{out_text}")
-            return {"status": "error", "message": err_text}
+            app.logger.error(f"[stream] ffmpeg died. exit={ffmpeg_proc.returncode}")
+            return {"status": "error", "message": f"ffmpeg exit code {ffmpeg_proc.returncode}"}
         return {"status": "ok"}
     except Exception as e:
         app.logger.exception(f"[stream] Unexpected error in _start_stream: {e}")
