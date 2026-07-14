@@ -2,9 +2,8 @@
 rtsp:
   protocols: [tcp]
 rtmp: {}
-hls: false
-webrtc: false
-srt: false
+hls: {}
+webrtc: {}
 record: false
 
 paths:
