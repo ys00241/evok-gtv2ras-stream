@@ -88,9 +88,10 @@ def detect_audio_device():
 def encoder_flags(encoder, bitrate):
     """Return ffmpeg encoder flags compatible with given encoder.
     - libx264: software, needs -preset -pix_fmt
-    - h264_v4l2m2m: RPi hardware, needs -pix_fmt (NOT -preset)"""
+    - h264_v4l2m2m: RPi hardware, needs -pix_fmt yuv420p (no -preset)"""
     flags = ["-c:v", encoder, "-b:v", bitrate]
     if encoder == "libx264":
+        # veryfast = good balance, ultrafast = lowest CPU but larger files
         flags += ["-preset", "veryfast", "-pix_fmt", "yuv420p"]
     else:
         # v4l2m2m (bcm2835-codec) — needs yuv420p (YU12), no -preset
