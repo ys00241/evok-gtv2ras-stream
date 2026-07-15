@@ -93,8 +93,8 @@ def encoder_flags(encoder, bitrate):
     if encoder == "libx264":
         flags += ["-preset", "veryfast", "-pix_fmt", "yuv420p"]
     else:
-        # v4l2m2m (bcm2835-codec) needs NV12, NOT yuv420p
-        flags += ["-pix_fmt", "nv12"]
+        # v4l2m2m (bcm2835-codec) — needs yuv420p (YU12), no -preset
+        flags += ["-pix_fmt", "yuv420p"]
     return flags
 
 def make_ffmpeg_cmd():
