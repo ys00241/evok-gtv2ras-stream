@@ -88,10 +88,13 @@ def detect_audio_device():
 def encoder_flags(encoder, bitrate):
     """Return ffmpeg encoder flags compatible with given encoder.
     - libx264: software, needs -preset -pix_fmt
-    - h264_v4l2m2m: RPi hardware, no preset/pix_fmt flags"""
+    - h264_v4l2m2m: RPi hardware, needs -pix_fmt (NOT -preset)"""
     flags = ["-c:v", encoder, "-b:v", bitrate]
     if encoder == "libx264":
         flags += ["-preset", "veryfast", "-pix_fmt", "yuv420p"]
+    else:
+        # v4l2m2m etc. — still needs pix_fmt conversion, no preset
+        flags += ["-pix_fmt", "yuv420p"]
     return flags
 
 def make_ffmpeg_cmd():

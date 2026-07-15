@@ -24,8 +24,6 @@ services:
       - FLASK_ENV=production
       - HW_ENCODER=libx264
       - PORT=6489
-      - CC_HOST=192.168.0.???
-      - ADB_PORT=5555
       - AUDIO_DEV=hw:1,0
     command: ["python", "app.py"]
     restart: unless-stopped
