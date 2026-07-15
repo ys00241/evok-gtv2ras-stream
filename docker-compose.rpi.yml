@@ -12,6 +12,7 @@ services:
       - "8964:6489"
     devices:
       - /dev/video0:/dev/video0
+      - /dev/video11:/dev/video11
       - /dev/snd:/dev/snd
     volumes:
       - /tmp/hls:/hls
@@ -23,7 +24,7 @@ services:
       - STREAM_DIR=/hls
       - RECORD_DIR=/recordings
       - FLASK_ENV=production
-      - HW_ENCODER=libx264
+      - HW_ENCODER=h264_v4l2m2m
       - PORT=6489
       - CC_HOST=192.168.0.???
       - ADB_PORT=5555

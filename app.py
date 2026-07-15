@@ -85,6 +85,15 @@ def detect_audio_device():
     return None
 
 # ─── ffmpeg helpers ───
+def encoder_flags(encoder, bitrate):
+    """Return ffmpeg encoder flags compatible with given encoder.
+    - libx264: software, needs -preset -pix_fmt
+    - h264_v4l2m2m: RPi hardware, no preset/pix_fmt flags"""
+    flags = ["-c:v", encoder, "-b:v", bitrate]
+    if encoder == "libx264":
+        flags += ["-preset", "veryfast", "-pix_fmt", "yuv420p"]
+    return flags
+
 def make_ffmpeg_cmd():
     """Single ffmpeg command for ALL enabled channels (HLS + MJPEG etc.).
     /dev/video0 can only be opened once — everything must be in one process."""
@@ -118,9 +127,8 @@ def make_ffmpeg_cmd():
             cmd += ["-f", "image2pipe", "-"]
             return cmd, "pipe"
         elif has_hls:
-            # HLS only: software encode
-            cmd += ["-c:v", "libx264", "-b:v", cfg["bitrate"],
-                    "-preset", "veryfast", "-pix_fmt", "yuv420p"]
+            # HLS only: encode (libx264 or hw encoder)
+            cmd += encoder_flags(cfg["hw_encoder"], cfg["bitrate"])
             if audio_device:
                 cmd += ["-c:a", "aac", "-b:a", "128k", "-ar", "48000"]
             cmd += ["-f", "hls", "-hls_time", "1", "-hls_list_size", "5",
@@ -129,12 +137,12 @@ def make_ffmpeg_cmd():
                     str(STREAM_DIR / "stream.m3u8")]
             return cmd, "hls"
         elif channels["teams"]["enabled"] and channels["teams"]["rtmp_url"]:
-            cmd += ["-c:v", "libx264", "-b:v", "2M", "-preset", "veryfast", "-pix_fmt", "yuv420p"]
+            cmd += encoder_flags(cfg["hw_encoder"], "2M")
             if audio_device: cmd += ["-c:a", "aac", "-b:a", "128k"]
             cmd += ["-f", "flv", f"{channels['teams']['rtmp_url']}/{channels['teams']['rtmp_key']}"]
             return cmd, "hls"
         elif channels["telegram"]["enabled"] and channels["telegram"]["rtmp_url"]:
-            cmd += ["-c:v", "libx264", "-b:v", "2M", "-preset", "veryfast", "-pix_fmt", "yuv420p"]
+            cmd += encoder_flags(cfg["hw_encoder"], "2M")
             if audio_device: cmd += ["-c:a", "aac", "-b:a", "128k"]
             cmd += ["-f", "flv", channels["telegram"]["rtmp_url"]]
             return cmd, "hls"
@@ -149,8 +157,7 @@ def make_ffmpeg_cmd():
         # HLS output (encode)
         cmd += ["-map", "[v0]"]
         if audio_device: cmd += ["-map", "[a0]"]
-        cmd += ["-c:v", "libx264", "-b:v", cfg["bitrate"],
-                "-preset", "veryfast", "-pix_fmt", "yuv420p"]
+        cmd += encoder_flags(cfg["hw_encoder"], cfg["bitrate"])
         if audio_device: cmd += ["-c:a", "aac", "-b:a", "128k", "-ar", "48000"]
         cmd += ["-f", "hls", "-hls_time", "1", "-hls_list_size", "5",
                 "-hls_flags", "delete_segments+omit_endlist",
@@ -380,8 +387,7 @@ def record_start():
     od.mkdir(parents=True, exist_ok=True)
     cmd = ["ffmpeg", "-y", "-f", "v4l2", "-input_format", "mjpeg",
            "-framerate", str(fps), "-video_size", res,
-           "-i", "/dev/video0", "-c:v", "libx264",
-           "-b:v", "4M", "-preset", "veryfast",
+           "-i", "/dev/video0", *encoder_flags(stream_config["hw_encoder"], "4M"),
            "-use_wallclock_as_timestamps", "1"]
     if rc["mode"] == "segment":
         cmd += ["-f", "segment", "-segment_time", str(rc["segment_seconds"]),
