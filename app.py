@@ -9,7 +9,11 @@ from pathlib import Path
 from flask import Flask, jsonify, request, send_file, send_from_directory, Response
 from flask_cors import CORS
 
+# ─── Constants ───
 PORT = int(os.environ.get("PORT", 5000))
+WATCHDOG_INTERVAL = 5       # seconds between watchdog checks
+WATCHDOG_MAX_RESTARTS = 3    # max auto-restarts before giving up
+WATCHDOG_COOLDOWN = 30       # seconds after max restarts before retrying
 app = Flask(__name__, static_folder=None)
 CORS(app)
 
@@ -180,10 +184,20 @@ def make_ffmpeg_cmd():
     return None
 
 
-def run_ffmpeg(cmd, tag="ffmpeg"):
+def run_ffmpeg(cmd, tag="ffmpeg", stdout_target=subprocess.DEVNULL):
     app.logger.info(f"[{tag}] {' '.join(cmd)}")
-    return subprocess.Popen(cmd, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
-                            preexec_fn=lambda: signal.signal(signal.SIGTERM, lambda s, f: None))
+    # Log stderr to a file for debugging
+    logdir = Path(os.environ.get("STREAM_DIR", "/hls")) / "logs"
+    logdir.mkdir(parents=True, exist_ok=True)
+    logfile = open(str(logdir / f"{tag}.log"), "a")
+    logfile.write(f"\n--- [{tag}] {datetime.now().isoformat()} ---\n")
+    logfile.write(f"{' '.join(cmd)}\n")
+    logfile.flush()
+    return subprocess.Popen(cmd, stdout=stdout_target, stderr=logfile,
+                            preexec_fn=lambda: (
+                                signal.signal(signal.SIGTERM, lambda s, f: None),
+                                signal.signal(signal.SIGPIPE, signal.SIG_IGN),
+                            ))
 
 
 def stop_process(proc):
@@ -198,6 +212,35 @@ def stop_process(proc):
             proc.wait()
         except Exception:
             pass
+
+
+# ─── Watchdog — auto-restart ffmpeg on crash ───
+watchdog_active = False
+restart_count = 0
+last_restart_time = 0
+
+
+def watchdog_loop():
+    global ffmpeg_proc, watchdog_active, restart_count, last_restart_time
+    while watchdog_active:
+        time.sleep(WATCHDOG_INTERVAL)
+        if ffmpeg_proc is None:
+            continue
+        rc = ffmpeg_proc.poll()
+        if rc is not None:
+            now = time.time()
+            app.logger.warning(f"[watchdog] ffmpeg exited with code {rc}")
+            # Cooldown check: if we've restarted too many times, back off
+            if restart_count >= WATCHDOG_MAX_RESTARTS and (now - last_restart_time) < WATCHDOG_COOLDOWN:
+                app.logger.warning(f"[watchdog] Max restarts ({WATCHDOG_MAX_RESTARTS}) reached, "
+                                   f"cooling down {WATCHDOG_COOLDOWN}s")
+                continue
+            # Auto-restart — good faith attempt
+            if restart_count < WATCHDOG_MAX_RESTARTS and rc != 0:
+                app.logger.info(f"[watchdog] Auto-restarting ffmpeg (attempt {restart_count+1}/{WATCHDOG_MAX_RESTARTS})")
+                _start_stream(suppress_watchdog=True)
+                restart_count += 1
+                last_restart_time = now
 
 
 # ═══════════════════════════════════════════
@@ -237,25 +280,29 @@ def stream_start():
     return jsonify(result), 500 if result.get("status") == "error" else 200
 
 
-def _start_stream():
-    global ffmpeg_proc
+def _start_stream(suppress_watchdog=False):
+    global ffmpeg_proc, watchdog_active
     try:
         if ffmpeg_proc and ffmpeg_proc.poll() is None:
             return {"status": "already_running"}
         result = make_ffmpeg_cmd()
         if result is None:
             return {"status": "error", "message": "No channels enabled"}
-        cmd, _mode = result
+        cmd, mode = result
         app.logger.info(f"[stream] Starting: {' '.join(cmd)}")
         # If MJPEG enabled, capture stdout for HTTP streaming
         stdout_target = subprocess.PIPE if channels["mjpeg"]["enabled"] else subprocess.DEVNULL
-        ffmpeg_proc = subprocess.Popen(cmd, stdout=stdout_target, stderr=subprocess.DEVNULL,
-                                       bufsize=0,
-                                       preexec_fn=lambda: signal.signal(signal.SIGTERM, lambda s, f: None))
+        ffmpeg_proc = run_ffmpeg(cmd, "stream", stdout_target=stdout_target)
         time.sleep(1.5)
         if ffmpeg_proc.poll() is not None:
             app.logger.error(f"[stream] ffmpeg died. exit={ffmpeg_proc.returncode}")
             return {"status": "error", "message": f"ffmpeg exit code {ffmpeg_proc.returncode}"}
+        # Launch watchdog thread (unless suppressed, e.g. from watchdog auto-restart)
+        if not suppress_watchdog and not watchdog_active:
+            watchdog_active = True
+            t = threading.Thread(target=watchdog_loop, daemon=True)
+            t.start()
+            app.logger.info("[watchdog] Started")
         return {"status": "ok"}
     except Exception as e:
         app.logger.exception(f"[stream] Start error: {e}")
@@ -289,15 +336,18 @@ def stream_stop():
 
 
 def _stop_stream():
-    global ffmpeg_proc
+    global ffmpeg_proc, restart_count
     if ffmpeg_proc:
         stop_process(ffmpeg_proc)
         ffmpeg_proc = None
     for f in STREAM_DIR.glob("*"):
-        try:
-            f.unlink()
-        except Exception:
-            pass
+        if f.is_file() and f.name != "logs":
+            try:
+                f.unlink()
+            except Exception:
+                pass
+    # Reset restart count on clean stop
+    restart_count = 0
     return {"status": "ok"}
 
 
