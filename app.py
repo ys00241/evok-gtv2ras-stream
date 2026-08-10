@@ -11,9 +11,9 @@ from flask_cors import CORS
 
 # ─── Constants ───
 PORT = int(os.environ.get("PORT", 5000))
-WATCHDOG_INTERVAL = 5       # seconds between watchdog checks
-WATCHDOG_MAX_RESTARTS = 3    # max auto-restarts before giving up
-WATCHDOG_COOLDOWN = 30       # seconds after max restarts before retrying
+WATCHDOG_INTERVAL = 3       # seconds between watchdog checks (faster detection)
+WATCHDOG_MAX_RESTARTS = 5    # max auto-restarts before giving up
+WATCHDOG_COOLDOWN = 10       # seconds after max restarts before retrying (faster recovery)
 app = Flask(__name__, static_folder=None)
 CORS(app)
 
@@ -89,17 +89,27 @@ def detect_audio_device():
     return None
 
 # ─── ffmpeg helpers ───
-def encoder_flags(encoder, bitrate):
+def encoder_flags(encoder, bitrate, low_latency=True):
     """Return ffmpeg encoder flags compatible with given encoder.
-    - libx264: software, needs -preset -pix_fmt
-    - h264_v4l2m2m: RPi hardware, needs -pix_fmt yuv420p (no -preset)"""
+    - libx264: software, supports -preset -tune -bf -g
+    - h264_v4l2m2m: RPi hardware, limited flag support
+    """
     flags = ["-c:v", encoder, "-b:v", bitrate]
+    if low_latency:
+        # Common low-latency flags (where supported)
+        flags += ["-bf", "0", "-g", "30", "-keyint_min", "30"]
     if encoder == "libx264":
-        # veryfast = good balance, ultrafast = lowest CPU but larger files
-        flags += ["-preset", "veryfast", "-pix_fmt", "yuv420p"]
+        if low_latency:
+            flags += ["-preset", "ultrafast", "-tune", "zerolatency", "-pix_fmt", "yuv420p"]
+        else:
+            flags += ["-preset", "veryfast", "-pix_fmt", "yuv420p"]
     else:
-        # v4l2m2m (bcm2835-codec) — needs yuv420p (YU12), no -preset
+        # v4l2m2m (bcm2835-codec) — hardware encoder
+        # Note: hw encoder may not support -preset/-tune/-bf/-g
+        # Only add -pix_fmt; -g might work depending on kernel version
         flags += ["-pix_fmt", "yuv420p"]
+        if low_latency:
+            flags += ["-g", "30"]
     return flags
 
 def make_ffmpeg_cmd():
@@ -108,12 +118,16 @@ def make_ffmpeg_cmd():
     cfg = stream_config
     audio_device = detect_audio_device()
     cmd = ["ffmpeg", "-y",
-           "-thread_queue_size", "512",
+           "-fflags", "nobuffer+discardcorrupt+genpts",
+           "-flags", "low_delay",
+           "-muxdelay", "0",
+           "-avoid_negative_ts", "make_zero",
+           "-thread_queue_size", "2048",
            "-f", "v4l2", "-input_format", "mjpeg",
            "-framerate", str(cfg["fps"]), "-video_size", cfg["resolution"],
            "-i", "/dev/video0"]
     if audio_device:
-        cmd += ["-thread_queue_size", "512", "-f", "alsa", "-i", audio_device]
+        cmd += ["-thread_queue_size", "1024", "-f", "alsa", "-i", audio_device]
     cmd += ["-use_wallclock_as_timestamps", "1"]
 
     active = [ch for ch, info in channels.items() if info["enabled"]]
@@ -136,21 +150,21 @@ def make_ffmpeg_cmd():
             return cmd, "pipe"
         elif has_hls:
             # HLS only: encode (libx264 or hw encoder)
-            cmd += encoder_flags(cfg["hw_encoder"], cfg["bitrate"])
+            cmd += encoder_flags(cfg["hw_encoder"], cfg["bitrate"], low_latency=True)
             if audio_device:
                 cmd += ["-c:a", "aac", "-b:a", "128k", "-ar", "48000"]
-            cmd += ["-f", "hls", "-hls_time", "1", "-hls_list_size", "5",
-                    "-hls_flags", "delete_segments+omit_endlist",
+            cmd += ["-f", "hls", "-hls_time", "0.5", "-hls_list_size", "3",
+                    "-hls_flags", "delete_segments+omit_endlist+append_list",
                     "-hls_segment_type", "mpegts",
                     str(STREAM_DIR / "stream.m3u8")]
             return cmd, "hls"
         elif channels["teams"]["enabled"] and channels["teams"]["rtmp_url"]:
-            cmd += encoder_flags(cfg["hw_encoder"], "2M")
+            cmd += encoder_flags(cfg["hw_encoder"], "2M", low_latency=True)
             if audio_device: cmd += ["-c:a", "aac", "-b:a", "128k"]
             cmd += ["-f", "flv", f"{channels['teams']['rtmp_url']}/{channels['teams']['rtmp_key']}"]
             return cmd, "hls"
         elif channels["telegram"]["enabled"] and channels["telegram"]["rtmp_url"]:
-            cmd += encoder_flags(cfg["hw_encoder"], "2M")
+            cmd += encoder_flags(cfg["hw_encoder"], "2M", low_latency=True)
             if audio_device: cmd += ["-c:a", "aac", "-b:a", "128k"]
             cmd += ["-f", "flv", channels["telegram"]["rtmp_url"]]
             return cmd, "hls"
@@ -165,10 +179,10 @@ def make_ffmpeg_cmd():
         # HLS output (encode)
         cmd += ["-map", "[v0]"]
         if audio_device: cmd += ["-map", "[a0]"]
-        cmd += encoder_flags(cfg["hw_encoder"], cfg["bitrate"])
+        cmd += encoder_flags(cfg["hw_encoder"], cfg["bitrate"], low_latency=True)
         if audio_device: cmd += ["-c:a", "aac", "-b:a", "128k", "-ar", "48000"]
-        cmd += ["-f", "hls", "-hls_time", "1", "-hls_list_size", "5",
-                "-hls_flags", "delete_segments+omit_endlist",
+        cmd += ["-f", "hls", "-hls_time", "0.5", "-hls_list_size", "3",
+                "-hls_flags", "delete_segments+omit_endlist+append_list",
                 "-hls_segment_type", "mpegts",
                 str(STREAM_DIR / "stream.m3u8")]
         # MJPEG output (copy)
@@ -235,8 +249,8 @@ def watchdog_loop():
                 app.logger.warning(f"[watchdog] Max restarts ({WATCHDOG_MAX_RESTARTS}) reached, "
                                    f"cooling down {WATCHDOG_COOLDOWN}s")
                 continue
-            # Auto-restart — good faith attempt
-            if restart_count < WATCHDOG_MAX_RESTARTS and rc != 0:
+            # Auto-restart — good faith attempt (on any non-zero exit)
+            if rc != 0:
                 app.logger.info(f"[watchdog] Auto-restarting ffmpeg (attempt {restart_count+1}/{WATCHDOG_MAX_RESTARTS})")
                 _start_stream(suppress_watchdog=True)
                 restart_count += 1
@@ -439,9 +453,15 @@ def record_start():
     now = datetime.now().strftime("%Y%m%d_%H%M%S")
     od = Path(rc["output_dir"])
     od.mkdir(parents=True, exist_ok=True)
-    cmd = ["ffmpeg", "-y", "-f", "v4l2", "-input_format", "mjpeg",
+    cmd = ["ffmpeg", "-y",
+           "-fflags", "nobuffer+discardcorrupt+genpts",
+           "-flags", "low_delay",
+           "-muxdelay", "0",
+           "-avoid_negative_ts", "make_zero",
+           "-thread_queue_size", "2048",
+           "-f", "v4l2", "-input_format", "mjpeg",
            "-framerate", str(fps), "-video_size", res,
-           "-i", "/dev/video0", *encoder_flags(stream_config["hw_encoder"], "4M"),
+           "-i", "/dev/video0", *encoder_flags(stream_config["hw_encoder"], "4M", low_latency=True),
            "-use_wallclock_as_timestamps", "1"]
     if rc["mode"] == "segment":
         cmd += ["-f", "segment", "-segment_time", str(rc["segment_seconds"]),
