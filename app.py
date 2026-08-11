@@ -1,6 +1,6 @@
 """
 TV-STREAM Backend — Flask API Server
-Serves EVERYTHING: HLS + MJPEG + Web UI + Recording + API
+Serves: HLS + Web UI + Recording + API
 Single container, no nginx dependency
 """
 import os, signal, subprocess, threading, time
@@ -52,7 +52,6 @@ RES_PRESETS = {
 }
 channels = {
     "hls": {"enabled": True, "name": "HLS"},
-    "mjpeg": {"enabled": False, "name": "HTTP MJPEG"},
     "teams": {"enabled": False, "name": "Microsoft Teams", "rtmp_url": "", "rtmp_key": ""},
     "telegram": {"enabled": False, "name": "Telegram", "rtmp_url": ""},
 }
@@ -124,7 +123,7 @@ def make_ffmpeg_cmd():
     """Single ffmpeg command for ALL enabled channels (HLS + MJPEG etc.).
     /dev/video0 can only be opened once — everything must be in one process."""
     cfg = stream_config
-    audio_device = detect_audio_device()
+    """Single ffmpeg command for ALL enabled channels (HLS only)."""
     # Auto-detect input format (try mjpeg first, fallback to rawvideo)
     input_fmt = "mjpeg"
     try:
@@ -157,70 +156,17 @@ def make_ffmpeg_cmd():
         return None
 
     has_hls = channels["hls"]["enabled"]
-    has_mjpeg = channels["mjpeg"]["enabled"]
 
-    # ── Single output ──
-    if n == 1:
-        if has_mjpeg:
-            # MJPEG only: encode to MJPEG (copy won't work - need actual JPEG frames)
-            cmd += ["-c:v", "mjpeg", "-q:v", "5"]  # q:v 1-31, lower=better
-            if audio_device:
-                cmd += ["-c:a", "aac", "-b:a", "128k", "-ar", "48000", "-ac", "2"]
-            cmd += ["-f", "image2pipe", "-"]
-            return cmd, "pipe"
-        elif has_hls:
-            # HLS only: encode (libx264 or hw encoder)
-            cmd += encoder_flags(cfg["hw_encoder"], cfg["bitrate"], low_latency=True)
-            if audio_device:
-                cmd += ["-c:a", "aac", "-b:a", "128k", "-ar", "48000"]
-            cmd += ["-f", "hls", "-hls_time", "0.5", "-hls_list_size", "3",
-                    "-hls_flags", "delete_segments+omit_endlist+append_list",
-                    "-hls_segment_type", "mpegts",
-                    str(STREAM_DIR / "stream.m3u8")]
-            return cmd, "hls"
-        elif channels["teams"]["enabled"] and channels["teams"]["rtmp_url"]:
-            cmd += encoder_flags(cfg["hw_encoder"], "2M", low_latency=True)
-            if audio_device: cmd += ["-c:a", "aac", "-b:a", "128k"]
-            cmd += ["-f", "flv", f"{channels['teams']['rtmp_url']}/{channels['teams']['rtmp_key']}"]
-            return cmd, "hls"
-        elif channels["telegram"]["enabled"] and channels["telegram"]["rtmp_url"]:
-            cmd += encoder_flags(cfg["hw_encoder"], "2M", low_latency=True)
-            if audio_device: cmd += ["-c:a", "aac", "-b:a", "128k"]
-            cmd += ["-f", "flv", channels["telegram"]["rtmp_url"]]
-            return cmd, "hls"
-
-    # ── Dual output: HLS + MJPEG (most common) ──
-    if has_hls and has_mjpeg:
-        # split video: HLS gets libx264 encode, MJPEG gets copy
-        # For hw encoder: convert format before split so HLS path gets yuv420p
-        if cfg["hw_encoder"] == "h264_v4l2m2m":
-            vf = "format=yuv420p[conv]; [conv]split=2[v0][v1]"
-            if audio_device:
-                cmd += ["-filter_complex", f"{vf}; asplit=2[a0][a1]"]
-            else:
-                cmd += ["-filter_complex", vf]
-        else:
-            if audio_device:
-                cmd += ["-filter_complex", "split=2[v0][v1]; asplit=2[a0][a1]"]
-            else:
-                cmd += ["-filter_complex", "split=2[v0][v1]"]
-        # HLS output (encode)
-        cmd += ["-map", "[v0]"]
-        if audio_device: cmd += ["-map", "[a0]"]
-        # Pass filter_already_applied=True since format conversion is in filter_complex
-        cmd += encoder_flags(cfg["hw_encoder"], cfg["bitrate"], low_latency=True, filter_already_applied=True)
-        if audio_device: cmd += ["-c:a", "aac", "-b:a", "128k", "-ar", "48000"]
+    # ── HLS only (simplified — no dual output) ──
+    if has_hls:
+        cmd += encoder_flags(cfg["hw_encoder"], cfg["bitrate"], low_latency=True)
+        if audio_device:
+            cmd += ["-c:a", "aac", "-b:a", "128k", "-ar", "48000"]
         cmd += ["-f", "hls", "-hls_time", "0.5", "-hls_list_size", "3",
                 "-hls_flags", "delete_segments+omit_endlist+append_list",
                 "-hls_segment_type", "mpegts",
                 str(STREAM_DIR / "stream.m3u8")]
-        # MJPEG output (encode to JPEG)
-        cmd += ["-map", "[v1]"]
-        if audio_device: cmd += ["-map", "[a1]"]
-        cmd += ["-c:v", "mjpeg", "-q:v", "5"]
-        if audio_device: cmd += ["-c:a", "aac", "-b:a", "128k", "-ar", "48000"]
-        cmd += ["-f", "image2pipe", "-"]
-        return cmd, "pipe+hls"
+        return cmd, "hls"
 
     # ── Fallback ──
     app.logger.warning(f"[stream] Unexpected channel combo: {active}")
@@ -337,9 +283,8 @@ def _start_stream(suppress_watchdog=False):
             return {"status": "error", "message": "No channels enabled"}
         cmd, mode = result
         app.logger.info(f"[stream] Starting: {' '.join(cmd)}")
-        # If MJPEG enabled, capture stdout for HTTP streaming
-        stdout_target = subprocess.PIPE if channels["mjpeg"]["enabled"] else subprocess.DEVNULL
-        ffmpeg_proc = run_ffmpeg(cmd, "stream", stdout_target=stdout_target)
+        # Always use DEVNULL for stdout (no pipe output needed)
+        ffmpeg_proc = run_ffmpeg(cmd, "stream", stdout_target=subprocess.DEVNULL)
         time.sleep(1.5)
         if ffmpeg_proc is not None and ffmpeg_proc.poll() is not None:
             app.logger.error(f"[stream] ffmpeg died. exit={ffmpeg_proc.returncode}")
@@ -354,27 +299,6 @@ def _start_stream(suppress_watchdog=False):
     except Exception as e:
         app.logger.exception(f"[stream] Start error: {e}")
         return {"status": "error", "message": str(e)}
-
-
-# ── MJPEG endpoint reads from main ffmpeg process stdout (video pipe) ──
-@app.route("/api/stream/mjpeg")
-def stream_mjpeg():
-    """HTTP MJPEG streaming — zero CPU, multipart/x-mixed-replace.
-    Reads from the main ffmpeg process stdout (image2pipe output)."""
-    def generate():
-        BOUNDARY = b"FRAME"
-        while True:
-            if ffmpeg_proc is None or ffmpeg_proc.poll() is not None or ffmpeg_proc.stdout is None:
-                yield BOUNDARY + b"\r\nContent-Type: text/plain\r\n\r\nStream ended\r\n"
-                break
-            frame = ffmpeg_proc.stdout.read(65536)
-            if not frame or len(frame) < 100:
-                time.sleep(0.05)
-                continue
-            yield (BOUNDARY + b"\r\nContent-Type: image/jpeg\r\n"
-                   + f"Content-Length: {len(frame)}\r\n\r\n".encode()
-                   + frame)
-    return Response(generate(), mimetype="multipart/x-mixed-replace; boundary=FRAME")
 
 
 @app.route("/api/stream/stop", methods=["POST"])

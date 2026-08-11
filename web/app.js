@@ -80,7 +80,6 @@ async function loadChannels() {
   if (data.status !== 'ok') return;
   const ch = data.channels;
   document.getElementById('ch-hls').checked = ch.hls?.enabled || false;
-  document.getElementById('ch-mjpeg').checked = ch.mjpeg?.enabled || false;
   document.getElementById('ch-teams').checked = ch.teams?.enabled || false;
   document.getElementById('ch-telegram').checked = ch.telegram?.enabled || false;
   if (ch.teams) {
@@ -117,9 +116,6 @@ async function loadStreamUrl() {
   initPlayer('playerVideo', streamUrl);
   const ev = document.getElementById('expandVideo');
   if (ev && !ev.src) initPlayer('expandVideo', streamUrl);
-  // MJPEG URL (zero CPU)
-  const mjpegUrl = `http://${base}/api/stream/mjpeg`;
-  document.getElementById('mjpegUrl').textContent = mjpegUrl;
 }
 
 // ─── Buttons: Stream ───
@@ -152,14 +148,12 @@ document.getElementById('btnPresetApply').addEventListener('click', async () => 
 // ─── Buttons: Channels ───
 document.getElementById('btnChannelApply').addEventListener('click', async () => {
   const hls = document.getElementById('ch-hls').checked;
-  const mjpeg = document.getElementById('ch-mjpeg').checked;
   const teams = document.getElementById('ch-teams').checked;
   const tg = document.getElementById('ch-telegram').checked;
   const teamsUrl = document.getElementById('teamsUrl').value;
   const teamsKey = document.getElementById('teamsKey').value;
   const tgUrl = document.getElementById('tgUrl').value;
   await api('PUT', '/channel/hls', { enabled: hls });
-  await api('PUT', '/channel/mjpeg', { enabled: mjpeg });
   await api('PUT', '/channel/teams', { enabled: teams, rtmp_url: teamsUrl, rtmp_key: teamsKey });
   await api('PUT', '/channel/telegram', { enabled: tg, rtmp_url: tgUrl });
   toast('Channels updated', 'success');

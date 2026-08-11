@@ -6,13 +6,13 @@
   <meta name="theme-color" content="#0f0f13">
   <title>TV-STREAM Remote</title>
   <link rel="stylesheet" href="style.css">
-  <!-- hls.js for HLS playback -->
-  <script src="https://cdn.jsdelivr.net/npm/hls.js@0.14.17/dist/hls.min.js"></script>
+  <!-- hls.js bundled locally for TV browser compatibility -->
+  <script src="hls.min.js"></script>
 </head>
 <body>
   <!-- ─── Navigation Bar ─── -->
   <nav id="navbar">
-    <div class="nav-brand">TV-STREAM <span style="font-size:12px;color:var(--accent);font-weight:400">v1.0-MJPEG</span></div>
+    <div class="nav-brand">TV-STREAM <span style="font-size:12px;color:var(--accent);font-weight:400">v1.1-HLS</span></div>
     <div class="nav-tabs" id="navTabs">
       <button class="nav-tab active" data-tab="dashboard">📊 Dashboard</button>
       <button class="nav-tab" data-tab="control">🎮 Remote</button>
@@ -88,11 +88,6 @@
           <label class="channel-toggle">
             <span>🌐 HLS</span>
             <input type="checkbox" id="ch-hls" checked>
-            <span class="toggle-slider"></span>
-          </label>
-          <label class="channel-toggle">
-            <span>📸 HTTP MJPEG</span>
-            <input type="checkbox" id="ch-mjpeg">
             <span class="toggle-slider"></span>
           </label>
           <label class="channel-toggle">
@@ -211,12 +206,8 @@
           <span><code id="streamUrl">---</code></span>
         </div>
         <div class="stat-row">
-          <span>📸 MJPEG URL:</span>
-          <span><code id="mjpegUrl">---</code></span>
-        </div>
-        <div class="stat-row">
           <span>🌐 Browser:</span>
-          <span style="font-size:12px">Open MJPEG URL in browser / VLC / img tag — zero delay</span>
+          <span style="font-size:12px">hls.js playback — works on Sony/LG TV browsers</span>
         </div>
         <div class="btn-row" style="margin-top:8px">
           <button class="btn btn-primary" id="btnCopyUrl">📋 Copy URL</button>
