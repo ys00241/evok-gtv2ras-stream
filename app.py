@@ -144,8 +144,11 @@ def make_ffmpeg_cmd():
     # Auto-detect input format (MS2130 outputs rawvideo YUY2, not mjpeg)
     input_fmt = None  # Let ffmpeg auto-detect
     try:
-        r = subprocess.run(["ffmpeg", "-f", "v4l2", "-i", cfg["video_dev"],
-                           "-f", "null", "-"], capture_output=True, text=True, timeout=3)
+        # Use -t 1 to limit detection to 1 second (prevent hanging)
+        r = subprocess.run(["ffmpeg", "-y", "-t", "1",
+                           "-f", "v4l2", "-i", cfg["video_dev"],
+                           "-f", "null", "-"],
+                          capture_output=True, text=True, timeout=5)
         app.logger.info(f"[input_detect] stderr: {r.stderr[:500]}")
         if "rawvideo" in r.stderr:
             input_fmt = None  # Auto-detect (YUY2)
