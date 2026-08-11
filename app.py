@@ -175,10 +175,6 @@ def make_ffmpeg_cmd():
            "-i", cfg["video_dev"]]
     if audio_device:
         cmd += ["-thread_queue_size", "1024", "-f", "alsa", "-i", audio_device]
-    # Output options (must come after inputs)
-    cmd += ["-use_wallclock_as_timestamps", "1",
-            "-muxdelay", "0",
-            "-avoid_negative_ts", "make_zero"]
 
     active = [ch for ch, info in channels.items() if info["enabled"]]
     n = len(active)
@@ -193,7 +189,11 @@ def make_ffmpeg_cmd():
         cmd += encoder_flags(cfg["hw_encoder"], cfg["bitrate"], low_latency=True)
         if audio_device:
             cmd += ["-c:a", "aac", "-b:a", "128k", "-ar", "48000"]
-        cmd += ["-f", "hls", "-hls_time", "0.5", "-hls_list_size", "3",
+        # Output options AFTER encoder flags
+        cmd += ["-use_wallclock_as_timestamps", "1",
+                "-muxdelay", "0",
+                "-avoid_negative_ts", "make_zero",
+                "-f", "hls", "-hls_time", "0.5", "-hls_list_size", "3",
                 "-hls_flags", "delete_segments+omit_endlist+append_list",
                 "-hls_segment_type", "mpegts",
                 str(STREAM_DIR / "stream.m3u8")]
