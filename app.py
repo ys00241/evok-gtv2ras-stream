@@ -90,10 +90,11 @@ def detect_audio_device():
     return None
 
 # ─── ffmpeg helpers ───
-def encoder_flags(encoder, bitrate, low_latency=True):
+def encoder_flags(encoder, bitrate, low_latency=True, filter_already_applied=False):
     """Return ffmpeg encoder flags compatible with given encoder.
     - libx264: software, supports -preset -tune -bf -g
     - h264_v4l2m2m: RPi hardware, limited flag support
+    - filter_already_applied: set True when format conversion done in filter_complex
     """
     flags = ["-c:v", encoder, "-b:v", bitrate]
     if encoder == "libx264":
@@ -106,8 +107,9 @@ def encoder_flags(encoder, bitrate, low_latency=True):
             flags += ["-preset", "veryfast", "-pix_fmt", "yuv420p"]
     else:
         # v4l2m2m (bcm2835-codec) — hardware encoder, limited flag support
-        # Need format conversion: yuyv422 (capture card) -> yuv420p (encoder input)
-        flags = ["-vf", "format=yuv420p"] + flags
+        if not filter_already_applied:
+            # Need format conversion: yuyv422 (capture card) -> yuv420p (encoder input)
+            flags = ["-vf", "format=yuv420p"] + flags
         flags += ["-pix_fmt", "yuv420p"]
         if low_latency:
             # Only -g works on some kernel versions; skip -bf / -keyint_min
@@ -201,7 +203,8 @@ def make_ffmpeg_cmd():
         # HLS output (encode)
         cmd += ["-map", "[v0]"]
         if audio_device: cmd += ["-map", "[a0]"]
-        cmd += encoder_flags(cfg["hw_encoder"], cfg["bitrate"], low_latency=True)
+        # Pass filter_already_applied=True since format conversion is in filter_complex
+        cmd += encoder_flags(cfg["hw_encoder"], cfg["bitrate"], low_latency=True, filter_already_applied=True)
         if audio_device: cmd += ["-c:a", "aac", "-b:a", "128k", "-ar", "48000"]
         cmd += ["-f", "hls", "-hls_time", "0.5", "-hls_list_size", "3",
                 "-hls_flags", "delete_segments+omit_endlist+append_list",
