@@ -3,7 +3,7 @@ TV-STREAM Backend — Flask API Server
 Serves: HLS + Web UI + Recording + API
 Single container, no nginx dependency
 """
-import os, signal, subprocess, threading, time
+import os, signal, subprocess, threading, time, re
 from datetime import datetime
 from pathlib import Path
 from flask import Flask, jsonify, request, send_file, send_from_directory, Response
@@ -83,7 +83,6 @@ def detect_audio_device():
         r = subprocess.run(["arecord", "-l"], capture_output=True, text=True, timeout=2)
         for line in r.stdout.split("\n"):
             if "MS2109" in line or "MS2130" in line or "USB Audio" in line:
-                import re
                 m = re.search(r"card (\d+):", line)
                 if m:
                     dev = f"hw:{m.group(1)},0"
