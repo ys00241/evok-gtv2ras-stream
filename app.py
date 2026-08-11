@@ -96,20 +96,19 @@ def encoder_flags(encoder, bitrate, low_latency=True):
     - h264_v4l2m2m: RPi hardware, limited flag support
     """
     flags = ["-c:v", encoder, "-b:v", bitrate]
-    if low_latency:
-        # Common low-latency flags (where supported)
-        flags += ["-bf", "0", "-g", "30", "-keyint_min", "30"]
     if encoder == "libx264":
         if low_latency:
-            flags += ["-preset", "ultrafast", "-tune", "zerolatency", "-pix_fmt", "yuv420p"]
+            # Software encoder supports full low-latency flags
+            flags += ["-bf", "0", "-g", "30", "-keyint_min", "30",
+                      "-preset", "ultrafast", "-tune", "zerolatency",
+                      "-pix_fmt", "yuv420p"]
         else:
             flags += ["-preset", "veryfast", "-pix_fmt", "yuv420p"]
     else:
-        # v4l2m2m (bcm2835-codec) — hardware encoder
-        # Note: hw encoder may not support -preset/-tune/-bf/-g
-        # Only add -pix_fmt; -g might work depending on kernel version
+        # v4l2m2m (bcm2835-codec) — hardware encoder, limited flag support
         flags += ["-pix_fmt", "yuv420p"]
         if low_latency:
+            # Only -g works on some kernel versions; skip -bf / -keyint_min
             flags += ["-g", "30"]
     return flags
 
