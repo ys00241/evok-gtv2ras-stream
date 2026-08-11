@@ -114,6 +114,10 @@ def encoder_flags(encoder, bitrate, low_latency=True, filter_already_applied=Fal
         if low_latency:
             # Only -g works on some kernel versions; skip -bf / -keyint_min
             flags += ["-g", "30"]
+        # Fix PPS/SPS issues: use baseline profile + level 3.0 for compatibility
+        flags += ["-profile:v", "baseline", "-level", "3.0"]
+        # Force flush packets for low latency
+        flags += ["-flush_packets", "1"]
     return flags
 
 def make_ffmpeg_cmd():
