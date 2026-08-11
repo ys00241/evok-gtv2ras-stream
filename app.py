@@ -194,6 +194,7 @@ def make_ffmpeg_cmd():
                 "-hls_flags", "delete_segments+omit_endlist+append_list",
                 "-hls_segment_type", "mpegts",
                 str(STREAM_DIR / "stream.m3u8")]
+        app.logger.info(f"[stream] FFmpeg cmd: {' '.join(cmd)}")
         return cmd, "hls"
 
     # ── Fallback ──
