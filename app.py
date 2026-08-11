@@ -292,7 +292,8 @@ def system_info():
 @app.route("/api/stream/start", methods=["POST"])
 def stream_start():
     result = _start_stream()
-    return jsonify(result), 500 if result.get("status") == "error" else 200
+    status_code = 500 if result.get("status") == "error" else 200
+    return jsonify(result), status_code
 
 
 def _start_stream(suppress_watchdog=False):
@@ -371,9 +372,10 @@ def _stop_stream():
 
 @app.route("/api/stream/restart", methods=["POST"])
 def stream_restart():
-    _stop_stream()
-    time.sleep(0.5)
-    return stream_start()
+    with app.app_context():
+        _stop_stream()
+        time.sleep(0.5)
+        return stream_start()
 
 
 @app.route("/api/stream/config", methods=["GET", "PUT"])
