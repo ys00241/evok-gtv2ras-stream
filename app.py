@@ -165,9 +165,6 @@ def make_ffmpeg_cmd():
     except Exception as e:
         app.logger.warning(f"[input_detect] Failed: {e}")
     cmd = ["ffmpeg", "-y",
-           "-fflags", "nobuffer+discardcorrupt+genpts",
-           "-flags", "low_delay",
-           "-thread_queue_size", "2048",
            "-f", "v4l2"]
     if input_fmt:
         cmd += ["-input_format", input_fmt]
