@@ -162,8 +162,8 @@ def make_ffmpeg_cmd():
     # ── Single output ──
     if n == 1:
         if has_mjpeg:
-            # MJPEG only: zero CPU copy mode
-            cmd += ["-c:v", "copy"]
+            # MJPEG only: encode to MJPEG (copy won't work - need actual JPEG frames)
+            cmd += ["-c:v", "mjpeg", "-q:v", "5"]  # q:v 1-31, lower=better
             if audio_device:
                 cmd += ["-c:a", "aac", "-b:a", "128k", "-ar", "48000", "-ac", "2"]
             cmd += ["-f", "image2pipe", "-"]
@@ -214,10 +214,10 @@ def make_ffmpeg_cmd():
                 "-hls_flags", "delete_segments+omit_endlist+append_list",
                 "-hls_segment_type", "mpegts",
                 str(STREAM_DIR / "stream.m3u8")]
-        # MJPEG output (copy)
+        # MJPEG output (encode to JPEG)
         cmd += ["-map", "[v1]"]
         if audio_device: cmd += ["-map", "[a1]"]
-        cmd += ["-c:v", "copy"]
+        cmd += ["-c:v", "mjpeg", "-q:v", "5"]
         if audio_device: cmd += ["-c:a", "aac", "-b:a", "128k", "-ar", "48000"]
         cmd += ["-f", "image2pipe", "-"]
         return cmd, "pipe+hls"
