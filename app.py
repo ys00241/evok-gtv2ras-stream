@@ -141,15 +141,19 @@ def make_ffmpeg_cmd():
     /dev/video0 can only be opened once — everything must be in one process."""
     cfg = stream_config
     audio_device = detect_audio_device()
-    # Auto-detect input format (try mjpeg first, fallback to rawvideo)
-    input_fmt = "mjpeg"
+    # Auto-detect input format (MS2130 outputs rawvideo YUY2, not mjpeg)
+    input_fmt = None  # Let ffmpeg auto-detect
     try:
         r = subprocess.run(["ffmpeg", "-f", "v4l2", "-i", cfg["video_dev"],
                            "-f", "null", "-"], capture_output=True, text=True, timeout=3)
-        if "mjpeg" not in r.stderr and "rawvideo" in r.stderr:
-            input_fmt = None  # Let ffmpeg auto-detect
-    except Exception:
-        pass
+        app.logger.info(f"[input_detect] stderr: {r.stderr[:500]}")
+        if "rawvideo" in r.stderr:
+            input_fmt = None  # Auto-detect (YUY2)
+        elif "mjpeg" in r.stderr:
+            input_fmt = "mjpeg"
+        app.logger.info(f"[input_detect] Using input_fmt={input_fmt}")
+    except Exception as e:
+        app.logger.warning(f"[input_detect] Failed: {e}")
     cmd = ["ffmpeg", "-y",
            "-fflags", "nobuffer+discardcorrupt+genpts",
            "-flags", "low_delay",
