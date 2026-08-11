@@ -313,7 +313,7 @@ def _start_stream(suppress_watchdog=False):
         stdout_target = subprocess.PIPE if channels["mjpeg"]["enabled"] else subprocess.DEVNULL
         ffmpeg_proc = run_ffmpeg(cmd, "stream", stdout_target=stdout_target)
         time.sleep(1.5)
-        if ffmpeg_proc.poll() is not None:
+        if ffmpeg_proc is not None and ffmpeg_proc.poll() is not None:
             app.logger.error(f"[stream] ffmpeg died. exit={ffmpeg_proc.returncode}")
             return {"status": "error", "message": f"ffmpeg exit code {ffmpeg_proc.returncode}"}
         # Launch watchdog thread (unless suppressed, e.g. from watchdog auto-restart)
