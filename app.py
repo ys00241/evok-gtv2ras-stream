@@ -120,15 +120,16 @@ def make_ffmpeg_cmd():
     cmd = ["ffmpeg", "-y",
            "-fflags", "nobuffer+discardcorrupt+genpts",
            "-flags", "low_delay",
-           "-muxdelay", "0",
-           "-avoid_negative_ts", "make_zero",
            "-thread_queue_size", "2048",
            "-f", "v4l2", "-input_format", "mjpeg",
            "-framerate", str(cfg["fps"]), "-video_size", cfg["resolution"],
            "-i", cfg["video_dev"]]
     if audio_device:
         cmd += ["-thread_queue_size", "1024", "-f", "alsa", "-i", audio_device]
-    cmd += ["-use_wallclock_as_timestamps", "1"]
+    # Output options (must come after inputs)
+    cmd += ["-use_wallclock_as_timestamps", "1",
+            "-muxdelay", "0",
+            "-avoid_negative_ts", "make_zero"]
 
     active = [ch for ch, info in channels.items() if info["enabled"]]
     n = len(active)
