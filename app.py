@@ -106,6 +106,8 @@ def encoder_flags(encoder, bitrate, low_latency=True):
             flags += ["-preset", "veryfast", "-pix_fmt", "yuv420p"]
     else:
         # v4l2m2m (bcm2835-codec) — hardware encoder, limited flag support
+        # Need format conversion: yuyv422 (capture card) -> yuv420p (encoder input)
+        flags = ["-vf", "format=yuv420p"] + flags
         flags += ["-pix_fmt", "yuv420p"]
         if low_latency:
             # Only -g works on some kernel versions; skip -bf / -keyint_min
@@ -184,10 +186,18 @@ def make_ffmpeg_cmd():
     # ── Dual output: HLS + MJPEG (most common) ──
     if has_hls and has_mjpeg:
         # split video: HLS gets libx264 encode, MJPEG gets copy
-        if audio_device:
-            cmd += ["-filter_complex", "split=2[v0][v1]; asplit=2[a0][a1]"]
+        # For hw encoder: convert format before split so HLS path gets yuv420p
+        if cfg["hw_encoder"] == "h264_v4l2m2m":
+            vf = "format=yuv420p[conv]; [conv]split=2[v0][v1]"
+            if audio_device:
+                cmd += ["-filter_complex", f"{vf}; asplit=2[a0][a1]"]
+            else:
+                cmd += ["-filter_complex", vf]
         else:
-            cmd += ["-filter_complex", "split=2[v0][v1]"]
+            if audio_device:
+                cmd += ["-filter_complex", "split=2[v0][v1]; asplit=2[a0][a1]"]
+            else:
+                cmd += ["-filter_complex", "split=2[v0][v1]"]
         # HLS output (encode)
         cmd += ["-map", "[v0]"]
         if audio_device: cmd += ["-map", "[a0]"]
