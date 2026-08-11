@@ -16,7 +16,7 @@ RUN ffmpeg -encoders 2>/dev/null | grep -qi v4l2 \
 
 WORKDIR /app
 COPY requirements.txt .
-RUN pip3 install --no-cache-dir -r requirements.txt
+RUN pip3 install --no-cache-dir --break-system-packages -r requirements.txt
 COPY app.py cc_remote.py ./
 COPY web/ /app/web/
 
