@@ -120,10 +120,10 @@ def encoder_flags(encoder, bitrate, low_latency=True, filter_already_applied=Fal
     return flags
 
 def make_ffmpeg_cmd():
-    """Single ffmpeg command for ALL enabled channels (HLS + MJPEG etc.).
+    """Single ffmpeg command for HLS output only.
     /dev/video0 can only be opened once — everything must be in one process."""
     cfg = stream_config
-    """Single ffmpeg command for ALL enabled channels (HLS only)."""
+    audio_device = detect_audio_device()
     # Auto-detect input format (try mjpeg first, fallback to rawvideo)
     input_fmt = "mjpeg"
     try:
