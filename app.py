@@ -127,7 +127,7 @@ def encoder_flags(encoder, bitrate, low_latency=True, filter_already_applied=Fal
         if not filter_already_applied:
             # Need format conversion: yuyv422 (capture card) -> yuv420p (encoder input)
             flags = ["-vf", "format=yuv420p"] + flags
-        flags += ["-pix_fmt", "yuv420p"]
+        # Note: -pix_fmt redundant when -vf format=yuv420p used
         if low_latency:
             # Only -g works on some kernel versions; skip -bf / -keyint_min
             flags += ["-g", "30"]
@@ -141,10 +141,10 @@ def make_ffmpeg_cmd():
     /dev/video0 can only be opened once — everything must be in one process."""
     cfg = stream_config
     audio_device = detect_audio_device()
-    # Auto-detect input format (MS2130 outputs rawvideo YUY2, not mjpeg)
-    input_fmt = None  # Let ffmpeg auto-detect
+    # Auto-detect input format and FPS (MS2130 outputs rawvideo YUY2 at 10fps max)
+    input_fmt = None
+    actual_fps = cfg["fps"]
     try:
-        # Use -t 1 to limit detection to 1 second (prevent hanging)
         r = subprocess.run(["ffmpeg", "-y", "-t", "1",
                            "-f", "v4l2", "-i", cfg["video_dev"],
                            "-f", "null", "-"],
@@ -154,7 +154,14 @@ def make_ffmpeg_cmd():
             input_fmt = None  # Auto-detect (YUY2)
         elif "mjpeg" in r.stderr:
             input_fmt = "mjpeg"
-        app.logger.info(f"[input_detect] Using input_fmt={input_fmt}")
+        import re
+        fps_match = re.search(r"frame=\d+\s+fps=\s*(\d+\.?\d*)", r.stderr)
+        if fps_match:
+            detected_fps = float(fps_match.group(1))
+            if detected_fps < actual_fps:
+                actual_fps = int(detected_fps)
+                app.logger.info(f"[input_detect] Detected FPS {detected_fps}, using {actual_fps}")
+        app.logger.info(f"[input_detect] Using input_fmt={input_fmt}, fps={actual_fps}")
     except Exception as e:
         app.logger.warning(f"[input_detect] Failed: {e}")
     cmd = ["ffmpeg", "-y",
@@ -164,7 +171,7 @@ def make_ffmpeg_cmd():
            "-f", "v4l2"]
     if input_fmt:
         cmd += ["-input_format", input_fmt]
-    cmd += ["-framerate", str(cfg["fps"]), "-video_size", cfg["resolution"],
+    cmd += ["-framerate", str(actual_fps), "-video_size", cfg["resolution"],
            "-i", cfg["video_dev"]]
     if audio_device:
         cmd += ["-thread_queue_size", "1024", "-f", "alsa", "-i", audio_device]
