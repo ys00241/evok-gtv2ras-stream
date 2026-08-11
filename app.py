@@ -105,7 +105,6 @@ def detect_audio_device():
 
     app.logger.warning("[audio] No audio device found — streaming video-only")
     return None
-    return None
 
 # ─── ffmpeg helpers ───
 def encoder_flags(encoder, bitrate, low_latency=True, filter_already_applied=False):
@@ -132,8 +131,7 @@ def encoder_flags(encoder, bitrate, low_latency=True, filter_already_applied=Fal
         if low_latency:
             # Only -g works on some kernel versions; skip -bf / -keyint_min
             flags += ["-g", "30"]
-        # Fix PPS/SPS issues: use baseline profile + level 3.0 for compatibility
-        flags += ["-profile:v", "baseline", "-level", "3.0"]
+        # Note: -profile:v / -level NOT supported by h264_v4l2m2m (hardware encoder)
         # Force flush packets for low latency
         flags += ["-flush_packets", "1"]
     return flags
