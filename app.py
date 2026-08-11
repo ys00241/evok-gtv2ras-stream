@@ -37,6 +37,7 @@ record_proc = None
 stream_config = {
     "resolution": "1280x720", "fps": 30, "bitrate": "4M",
     "hw_encoder": os.environ.get("HW_ENCODER", "libx264"),
+    "video_dev": os.environ.get("VIDEO_DEV", "/dev/video0"),
 }
 
 # ─── Chromecast ADB Config ───
@@ -125,7 +126,7 @@ def make_ffmpeg_cmd():
            "-thread_queue_size", "2048",
            "-f", "v4l2", "-input_format", "mjpeg",
            "-framerate", str(cfg["fps"]), "-video_size", cfg["resolution"],
-           "-i", "/dev/video0"]
+           "-i", cfg["video_dev"]]
     if audio_device:
         cmd += ["-thread_queue_size", "1024", "-f", "alsa", "-i", audio_device]
     cmd += ["-use_wallclock_as_timestamps", "1"]
@@ -274,7 +275,7 @@ def system_info():
     try:
         r = subprocess.run(["v4l2-ctl", "--list-devices"],
                            capture_output=True, text=True, timeout=3)
-        info["v4l2_detected"] = "/dev/video0" in r.stdout
+        info["v4l2_detected"] = stream_config["video_dev"] in r.stdout
         info["devices"] = r.stdout
     except Exception:
         pass
@@ -299,6 +300,9 @@ def _start_stream(suppress_watchdog=False):
     try:
         if ffmpeg_proc and ffmpeg_proc.poll() is None:
             return {"status": "already_running"}
+        # Check video device exists
+        if not Path(stream_config["video_dev"]).exists():
+            return {"status": "error", "message": f"Video device {stream_config['video_dev']} not found"}
         result = make_ffmpeg_cmd()
         if result is None:
             return {"status": "error", "message": "No channels enabled"}
@@ -461,7 +465,7 @@ def record_start():
            "-thread_queue_size", "2048",
            "-f", "v4l2", "-input_format", "mjpeg",
            "-framerate", str(fps), "-video_size", res,
-           "-i", "/dev/video0", *encoder_flags(stream_config["hw_encoder"], "4M", low_latency=True),
+           "-i", stream_config["video_dev"], *encoder_flags(stream_config["hw_encoder"], "4M", low_latency=True),
            "-use_wallclock_as_timestamps", "1"]
     if rc["mode"] == "segment":
         cmd += ["-f", "segment", "-segment_time", str(rc["segment_seconds"]),
