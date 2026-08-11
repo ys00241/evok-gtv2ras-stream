@@ -63,6 +63,9 @@ record_config = {
 
 # ─── Audio auto-detect ───
 def detect_audio_device():
+    """Detect audio capture device from MS2130/MS2109 capture card.
+    Returns None if no device found — stream will be video-only."""
+    # 1. Check env override (for testing)
     env_dev = os.environ.get("AUDIO_DEV", "")
     if env_dev:
         try:
@@ -70,9 +73,12 @@ def detect_audio_device():
                 ["arecord", "-D", env_dev, "-d", "1", "-f", "S16_LE", "-r", "48000", "-c", "2", "/dev/null"],
                 capture_output=True, timeout=3)
             if r.returncode == 0:
+                app.logger.info(f"[audio] Using override: {env_dev}")
                 return env_dev
-        except Exception:
-            pass
+        except Exception as e:
+            app.logger.warning(f"[audio] Override {env_dev} failed: {e}")
+
+    # 2. Auto-detect from arecord -l
     try:
         r = subprocess.run(["arecord", "-l"], capture_output=True, text=True, timeout=2)
         for line in r.stdout.split("\n"):
@@ -85,7 +91,21 @@ def detect_audio_device():
                     return dev
     except Exception:
         pass
-    app.logger.warning("[audio] No capture card detected — streaming video-only")
+
+    # 3. Fallback: try any ALSA capture device
+    try:
+        r = subprocess.run(["arecord", "-l"], capture_output=True, text=True, timeout=2)
+        for line in r.stdout.split("\n"):
+            m = re.search(r"card (\d+):.*\n.*  device (\d+):", line)
+            if m:
+                dev = f"hw:{m.group(1)},{m.group(2)}"
+                app.logger.info(f"[audio] Fallback detected: {dev}")
+                return dev
+    except Exception:
+        pass
+
+    app.logger.warning("[audio] No audio device found — streaming video-only")
+    return None
     return None
 
 # ─── ffmpeg helpers ───
