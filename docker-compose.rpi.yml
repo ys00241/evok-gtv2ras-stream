@@ -26,7 +26,6 @@ services:
       - FLASK_ENV=production
       - HW_ENCODER=h264_v4l2m2m
       - PORT=6489
-      - AUDIO_DEV=hw:3,0
       # Low-latency tuning
       - HLS_TIME=0.5
       - HLS_LIST_SIZE=3
