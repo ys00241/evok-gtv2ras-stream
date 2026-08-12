@@ -124,15 +124,10 @@ def encoder_flags(encoder, bitrate, low_latency=True, filter_already_applied=Fal
             flags += ["-preset", "veryfast", "-pix_fmt", "yuv420p"]
     else:
         # v4l2m2m (bcm2835-codec) — hardware encoder, limited flag support
-        if not filter_already_applied:
-            # Need format conversion: yuyv422 (capture card) -> yuv420p (encoder input)
-            flags = ["-vf", "format=yuv420p"] + flags
-        # Note: -pix_fmt redundant when -vf format=yuv420p used
+        # Use NV12 directly — avoids -vf filter issues with V4L2 M2M
+        flags = ["-c:v", encoder, "-b:v", bitrate, "-pix_fmt", "nv12"]
         if low_latency:
-            # Only -g works on some kernel versions; skip -bf / -keyint_min
             flags += ["-g", "30"]
-        # Note: -profile:v / -level NOT supported by h264_v4l2m2m (hardware encoder)
-        # Force flush packets for low latency
         flags += ["-flush_packets", "1"]
     return flags
 
