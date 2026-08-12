@@ -38,6 +38,7 @@ stream_config = {
     "resolution": "1280x720", "fps": 30, "bitrate": "4M",
     "hw_encoder": os.environ.get("HW_ENCODER", "libx264"),
     "video_dev": os.environ.get("VIDEO_DEV", "/dev/video0"),
+    "encoder_dev": os.environ.get("ENCODER_DEV", None),
 }
 
 # ─── Chromecast ADB Config ───
@@ -106,12 +107,29 @@ def detect_audio_device():
     app.logger.warning("[audio] No audio device found — streaming video-only")
     return None
 
+# ─── Encoder device detection ───
+def detect_encoder_device():
+    """Auto-detect V4L2 M2M H264 encoder device (RPi: /dev/video11)."""
+    import glob
+    for path in sorted(glob.glob("/dev/video*")):
+        try:
+            r = subprocess.run(["v4l2-ctl", "-d", path, "--list-formats-ext"],
+                               capture_output=True, text=True, timeout=3)
+            if "H264" in r.stdout:
+                app.logger.info(f"[encoder_detect] Found H264 encoder at {path}")
+                return path
+        except Exception:
+            continue
+    app.logger.warning("[encoder_detect] No H264 encoder device found — falling back to video_dev")
+    return None
+
 # ─── ffmpeg helpers ───
-def encoder_flags(encoder, bitrate, low_latency=True, filter_already_applied=False):
+def encoder_flags(encoder, bitrate, low_latency=True, filter_already_applied=False, encoder_dev=None):
     """Return ffmpeg encoder flags compatible with given encoder.
     - libx264: software, supports -preset -tune -bf -g
     - h264_v4l2m2m: RPi hardware, limited flag support
     - filter_already_applied: set True when format conversion done in filter_complex
+    - encoder_dev: explicit V4L2 M2M device path (e.g. /dev/video11 on RPi)
     """
     flags = ["-c:v", encoder, "-b:v", bitrate]
     if encoder == "libx264":
@@ -129,6 +147,9 @@ def encoder_flags(encoder, bitrate, low_latency=True, filter_already_applied=Fal
         if low_latency:
             flags += ["-g", "30"]
         flags += ["-flush_packets", "1"]
+        # Specify encoder device if given (RPi: /dev/video11)
+        if encoder_dev:
+            flags += ["-enc_device", encoder_dev]
     return flags
 
 def make_ffmpeg_cmd():
@@ -178,7 +199,10 @@ def make_ffmpeg_cmd():
 
     # ── HLS only (simplified — no dual output) ──
     if has_hls:
-        cmd += encoder_flags(cfg["hw_encoder"], cfg["bitrate"], low_latency=True)
+        # Auto-detect encoder device if not set
+        if cfg["encoder_dev"] is None:
+            cfg["encoder_dev"] = detect_encoder_device()
+        cmd += encoder_flags(cfg["hw_encoder"], cfg["bitrate"], low_latency=True, encoder_dev=cfg["encoder_dev"])
         if audio_device:
             cmd += ["-c:a", "aac", "-b:a", "128k", "-ar", "48000"]
         # Output options AFTER encoder flags

@@ -13,6 +13,7 @@ services:
     devices:
       - /dev/video0:/dev/video0
       - /dev/video11:/dev/video11
+      - /dev/video11
       - /dev/snd:/dev/snd
     volumes:
       - /tmp/hls:/hls
@@ -25,6 +26,7 @@ services:
       - RECORD_DIR=/recordings
       - FLASK_ENV=production
       - HW_ENCODER=h264_v4l2m2m
+      - ENCODER_DEV=/dev/video11
       - PORT=6489
       # Low-latency tuning
       - HLS_TIME=0.5
