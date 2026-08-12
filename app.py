@@ -185,7 +185,7 @@ def make_ffmpeg_cmd():
         # Output options AFTER encoder flags
         cmd += ["-muxdelay", "0",
                 "-avoid_negative_ts", "make_zero",
-                "-f", "hls", "-hls_time", "0.5", "-hls_list_size", "3",
+                "-f", "hls", "-hls_time", "2", "-hls_list_size", "3",
                 "-hls_flags", "delete_segments+omit_endlist+append_list",
                 "-hls_segment_type", "mpegts",
                 str(STREAM_DIR / "stream.m3u8")]

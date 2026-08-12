@@ -33,7 +33,6 @@ services:
       - THREAD_QUEUE_AUDIO=1024
       - ENCODER_PRESET=ultrafast
       - ENCODER_TUNE=zerolatency
-      - GOP_SIZE=30
       - BF_FRAMES=0
     command: ["python", "app.py"]
     restart: unless-stopped
