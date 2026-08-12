@@ -197,8 +197,11 @@
   <section id="tab-player" class="tab-content">
     <div class="card">
       <div class="card-title">📺 HLS Stream Player</div>
-      <div class="live-player full-player">
+      <div class="live-player full-player" style="position:relative;">
         <video id="playerVideo" controls autoplay muted playsinline></video>
+        <div id="playerVideo-overlay" style="position:absolute;top:0;left:0;right:0;bottom:0;display:none;align-items:center;justify-content:center;background:rgba(0,0,0,0.5);cursor:pointer;z-index:10;border-radius:8px;" onclick="document.getElementById('playerVideo').play();this.style.display='none';">
+          <div style="text-align:center;color:white;"><div style="font-size:48px;margin-bottom:8px;">▶</div><div style="font-size:14px;">Tap to play</div></div>
+        </div>
       </div>
       <div class="player-info">
         <div class="stat-row">

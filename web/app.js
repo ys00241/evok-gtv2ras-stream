@@ -6,6 +6,7 @@ let pollInterval = null;
 let streamUrl = '';
 
 // ─── Tab Navigation ───
+let playerInitialized = false;
 document.querySelectorAll('.nav-tab').forEach(tab => {
   tab.addEventListener('click', () => {
     document.querySelectorAll('.nav-tab').forEach(t => t.classList.remove('active'));
@@ -13,6 +14,11 @@ document.querySelectorAll('.nav-tab').forEach(tab => {
     document.querySelectorAll('.tab-content').forEach(c => c.classList.remove('active'));
     const target = document.getElementById(`tab-${tab.dataset.tab}`);
     if (target) target.classList.add('active');
+    // Initialize player only when player tab is activated (video must be visible)
+    if (tab.dataset.tab === 'player' && !playerInitialized) {
+      playerInitialized = true;
+      loadStreamUrl();
+    }
   });
 });
 
@@ -45,16 +51,74 @@ function initPlayer(videoId, url) {
   if (!video) return;
   if (hlsPlayers[videoId]) { hlsPlayers[videoId].destroy(); delete hlsPlayers[videoId]; }
   if (!url) return;
+  // Clean up any previous src
+  video.removeAttribute('src');
+  video.load();
   if (Hls.isSupported()) {
-    const hls = new Hls({ liveDurationInfinity: true, lowLatencyMode: true });
+    const hls = new Hls({
+      liveDurationInfinity: true,
+      lowLatencyMode: false,
+      enableWorker: false,
+      maxBufferLength: 10,
+      maxMaxBufferLength: 30,
+      startLevel: 0,
+    });
     hls.loadSource(url);
     hls.attachMedia(video);
-    hls.on(Hls.Events.MANIFEST_PARSED, () => video.play().catch(() => {}));
+    // Error handling
+    hls.on(Hls.Events.ERROR, (event, data) => {
+      console.error('[hls] error:', event, data);
+      if (data.fatal) {
+        console.warn('[hls] fatal error, trying recover...');
+        switch (data.type) {
+          case Hls.ErrorTypes.NETWORK_ERROR:
+            hls.startLoad();
+            break;
+          case Hls.ErrorTypes.MEDIA_ERROR:
+            hls.recoverMediaError();
+            break;
+          default:
+            hls.destroy();
+            break;
+        }
+      }
+    });
+    hls.on(Hls.Events.MANIFEST_PARSED, () => {
+      video.play().catch(e => {
+        console.warn('[hls] autoplay blocked:', e);
+        showPlayOverlay(videoId);
+      });
+    });
     hlsPlayers[videoId] = hls;
   } else if (video.canPlayType('application/vnd.apple.mpegurl')) {
     video.src = url;
-    video.play().catch(() => {});
+    video.play().catch(e => {
+      console.warn('[native] autoplay blocked:', e);
+      showPlayOverlay(videoId);
+    });
+  } else {
+    console.error('[player] HLS not supported in this browser');
+    showPlayOverlay(videoId);
   }
+}
+
+// ─── Click-to-play fallback ───
+function showPlayOverlay(videoId) {
+  const video = document.getElementById(videoId);
+  if (!video) return;
+  let overlay = document.getElementById(`${videoId}-overlay`);
+  if (!overlay) {
+    overlay = document.createElement('div');
+    overlay.id = `${videoId}-overlay`;
+    overlay.style.cssText = 'position:absolute;top:0;left:0;right:0;bottom:0;display:flex;align-items:center;justify-content:center;background:rgba(0,0,0,0.5);cursor:pointer;z-index:10;border-radius:8px;';
+    overlay.innerHTML = '<div style="text-align:center;color:white;"><div style="font-size:48px;margin-bottom:8px;">▶</div><div style="font-size:14px;">Tap to play</div></div>';
+    video.parentElement.style.position = 'relative';
+    video.parentElement.appendChild(overlay);
+    overlay.addEventListener('click', () => {
+      video.play().then(() => { overlay.style.display = 'none'; }).catch(() => {});
+    });
+  }
+  overlay.style.display = 'flex';
 }
 
 // ─── Dashboard ───
@@ -115,7 +179,7 @@ async function loadStreamUrl() {
   document.getElementById('streamUrl').textContent = streamUrl;
   initPlayer('playerVideo', streamUrl);
   const ev = document.getElementById('expandVideo');
-  if (ev && !ev.src) initPlayer('expandVideo', streamUrl);
+  if (ev) initPlayer('expandVideo', streamUrl);
 }
 
 // ─── Buttons: Stream ───
@@ -309,7 +373,8 @@ async function pollAll() {
 pollInterval = setInterval(pollAll, 5000);
 pollAll();
 loadChannels();
-loadStreamUrl();
+// NOTE: loadStreamUrl() is now called from tab click handler instead
+// to ensure the video element is visible before initializing hls.js
 
 // ─── Keyboard shortcuts ───
 document.addEventListener('keydown', (e) => {
