@@ -185,8 +185,7 @@ def make_ffmpeg_cmd():
         if audio_device:
             cmd += ["-c:a", "aac", "-b:a", "128k", "-ar", "48000"]
         # Output options AFTER encoder flags
-        cmd += ["-use_wallclock_as_timestamps", "1",
-                "-muxdelay", "0",
+        cmd += ["-muxdelay", "0",
                 "-avoid_negative_ts", "make_zero",
                 "-f", "hls", "-hls_time", "0.5", "-hls_list_size", "3",
                 "-hls_flags", "delete_segments+omit_endlist+append_list",
