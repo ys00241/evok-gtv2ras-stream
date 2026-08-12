@@ -127,11 +127,9 @@ def encoder_flags(encoder, bitrate, low_latency=True, filter_already_applied=Fal
             flags += ["-preset", "veryfast", "-pix_fmt", "yuv420p"]
     else:
         # v4l2m2m (bcm2835-codec) — hardware encoder, limited flag support
-        # Use NV12 directly — avoids -vf filter issues with V4L2 M2M
-        flags = ["-c:v", encoder, "-b:v", bitrate, "-pix_fmt", "nv12"]
-        if low_latency:
-            flags += ["-g", "30"]
-        flags += ["-flush_packets", "1"]
+        # DO NOT use -g (GOP) — bcm2835-codec rejects it → "Failed to set gop size: Invalid argument"
+        # DO NOT use -use_wallclock_as_timestamps — corrupts H.264 bitstream
+        flags = ["-c:v", encoder, "-b:v", bitrate, "-pix_fmt", "nv12", "-flush_packets", "1"]
     return flags
 
 def make_ffmpeg_cmd():
@@ -438,15 +436,9 @@ def record_start():
     od = Path(rc["output_dir"])
     od.mkdir(parents=True, exist_ok=True)
     cmd = ["ffmpeg", "-y",
-           "-fflags", "nobuffer+discardcorrupt+genpts",
-           "-flags", "low_delay",
-           "-muxdelay", "0",
-           "-avoid_negative_ts", "make_zero",
-           "-thread_queue_size", "2048",
-           "-f", "v4l2", "-input_format", "mjpeg",
+           "-f", "v4l2",
            "-framerate", str(fps), "-video_size", res,
-           "-i", stream_config["video_dev"], *encoder_flags(stream_config["hw_encoder"], "4M", low_latency=True),
-           "-use_wallclock_as_timestamps", "1"]
+           "-i", stream_config["video_dev"], *encoder_flags(stream_config["hw_encoder"], "4M", low_latency=True)]
     if rc["mode"] == "segment":
         cmd += ["-f", "segment", "-segment_time", str(rc["segment_seconds"]),
                 "-reset_timestamps", "1", "-strftime", "1",
