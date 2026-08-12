@@ -138,8 +138,15 @@ def make_ffmpeg_cmd():
     cfg = stream_config
     audio_device = detect_audio_device()
     # Auto-detect input format and FPS (MS2130 outputs rawvideo YUY2 at 10fps max)
+    # FIX: Reduce thread_queue_size to prevent USB buffer overflow
+    # FIX: Use lower resolution (640x480) for stable USB transfer
     input_fmt = None
-    actual_fps = cfg["fps"]
+    actual_fps = min(cfg["fps"], 10)  # MS2130 max is 10fps
+    video_size = cfg["resolution"]
+    # Downscale to 640x480 if original is 1280x720 to reduce USB bandwidth
+    if video_size == "1280x720":
+        video_size = "640x480"
+        app.logger.info("[input] Downscaling to 640x480 for USB stability")
     try:
         r = subprocess.run(["ffmpeg", "-y", "-t", "1",
                            "-f", "v4l2", "-i", cfg["video_dev"],
@@ -161,13 +168,13 @@ def make_ffmpeg_cmd():
     except Exception as e:
         app.logger.warning(f"[input_detect] Failed: {e}")
     cmd = ["ffmpeg", "-y",
-           "-f", "v4l2"]
-    if input_fmt:
-        cmd += ["-input_format", input_fmt]
-    cmd += ["-framerate", str(actual_fps), "-video_size", cfg["resolution"],
-           "-i", cfg["video_dev"]]
+           "-f", "v4l2",
+           "-thread_queue_size", "64",  # Reduce from 2048 to prevent USB buffer overflow
+           "-i", cfg["video_dev"],
+           "-vf", f"scale=640:480:flags=bilinear"]
+    cmd += ["-framerate", str(actual_fps)]
     if audio_device:
-        cmd += ["-thread_queue_size", "1024", "-f", "alsa", "-i", audio_device]
+        cmd += ["-thread_queue_size", "64", "-f", "alsa", "-i", audio_device]
 
     active = [ch for ch, info in channels.items() if info["enabled"]]
     n = len(active)
