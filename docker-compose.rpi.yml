@@ -13,7 +13,6 @@ services:
     devices:
       - /dev/video0:/dev/video0
       - /dev/video11:/dev/video11
-      - /dev/video11
       - /dev/snd:/dev/snd
     volumes:
       - /tmp/hls:/hls
