@@ -170,7 +170,14 @@ def make_ffmpeg_cmd():
     if audio_device:
         cmd += ["-thread_queue_size", "64", "-f", "alsa", "-i", audio_device]
 
-    # ── Step 2: No scale filter — use native resolution for correct aspect ratio ──
+    # ── Step 2: Scale with aspect ratio preservation (force_original_aspect_ratio=decrease)
+    # Downscale 1280x720 → 640x480 but maintain 16:9 by letterboxing (black bars)
+    if audio_device:
+        cmd += ["-filter_complex", "[0:v]scale=640:480:flags=bilinear:force_original_aspect_ratio=decrease,pad=640:480:(ow-iw)/2:(oh-ih)/2[vid]",
+                "-map", "[vid]",
+                "-map", "1:a"]
+    else:
+        cmd += ["-vf", "scale=640:480:flags=bilinear:force_original_aspect_ratio=decrease,pad=640:480:(ow-iw)/2:(oh-ih)/2"]
 
     active = [ch for ch, info in channels.items() if info["enabled"]]
     n = len(active)
