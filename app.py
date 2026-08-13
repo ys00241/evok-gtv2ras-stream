@@ -170,8 +170,8 @@ def make_ffmpeg_cmd():
            "-f", "v4l2",
            "-thread_queue_size", "64",  # Reduce from 2048 to prevent USB buffer overflow
            "-framerate", str(actual_fps),
-           "-i", cfg["video_dev"],
-           "-vf", "scale=640:480:flags=bilinear"]
+           "-vf", "scale=640:480:flags=bilinear",  # MUST be before -i (video input)
+           "-i", cfg["video_dev"]]
     if audio_device:
         cmd += ["-thread_queue_size", "64", "-f", "alsa", "-i", audio_device]
 
