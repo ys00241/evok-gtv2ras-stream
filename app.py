@@ -414,6 +414,20 @@ def stream_status():
     })
 
 
+@app.route("/api/stream/log", methods=["GET"])
+def stream_log():
+    """Return last N lines of ffmpeg stderr log for debugging."""
+    n = int(request.args.get("n", 50))
+    log_path = STREAM_DIR / "logs" / "stream.log"
+    if not log_path.exists():
+        return jsonify({"status": "ok", "lines": [], "error": "no log file"})
+    try:
+        lines = log_path.read_text().splitlines()
+        return jsonify({"status": "ok", "lines": lines[-n:]})
+    except Exception as e:
+        return jsonify({"status": "error", "error": str(e)})
+
+
 # ── Channels ──
 @app.route("/api/channel/status", methods=["GET"])
 def channel_status():
