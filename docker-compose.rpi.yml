@@ -27,7 +27,7 @@ services:
       - HW_ENCODER=h264_v4l2m2m
       - PORT=6489
       # Low-latency tuning
-      - HLS_LIST_SIZE=3
+      - HLS_LIST_SIZE=10
       - HLS_TIME=1
       - THREAD_QUEUE_VIDEO=2048
       - THREAD_QUEUE_AUDIO=1024

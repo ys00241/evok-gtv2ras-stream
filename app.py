@@ -221,7 +221,7 @@ def make_ffmpeg_cmd():
         # Output options AFTER encoder flags
         cmd += ["-muxdelay", "0",
                 "-avoid_negative_ts", "make_zero",
-                "-f", "hls", "-hls_time", str(stream_config["hls_time"]), "-hls_list_size", "3",
+                "-f", "hls", "-hls_time", str(stream_config["hls_time"]), "-hls_list_size", os.environ.get("HLS_LIST_SIZE", "10"),
                 "-hls_flags", "delete_segments+omit_endlist+append_list",
                 "-hls_segment_type", "mpegts",
                 str(STREAM_DIR / "stream.m3u8")]
