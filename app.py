@@ -168,12 +168,19 @@ def make_ffmpeg_cmd():
         app.logger.warning(f"[input_detect] Failed: {e}")
     cmd = ["ffmpeg", "-y",
            "-f", "v4l2",
-           "-thread_queue_size", "64",  # Reduce from 2048 to prevent USB buffer overflow
+           "-thread_queue_size", "64",
            "-framerate", str(actual_fps),
-           "-i", cfg["video_dev"],
-           "-vf", "scale=640:480:flags=bilinear"]  # filter AFTER video input, BEFORE audio input
+           "-i", cfg["video_dev"]]
     if audio_device:
-        cmd += ["-thread_queue_size", "64", "-f", "alsa", "-i", audio_device]
+        # Use filter_complex to avoid ambiguity with multi-input commands
+        # [0:v] = video stream from /dev/video0, [1:a] = audio from alsa
+        cmd += ["-filter_complex", "[0:v]scale=640:480:flags=bilinear[vid]",
+                "-map", "[vid]",
+                "-thread_queue_size", "64", "-f", "alsa", "-i", audio_device,
+                "-map", "1:a"]
+    else:
+        # No audio: apply scale directly to video stream
+        cmd += ["-vf", "scale=640:480:flags=bilinear"]
 
     active = [ch for ch, info in channels.items() if info["enabled"]]
     n = len(active)
