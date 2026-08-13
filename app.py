@@ -140,16 +140,16 @@ def make_ffmpeg_cmd():
     audio_device = detect_audio_device()
     # Auto-detect input format and FPS from capture device
     input_fmt = None
-    actual_fps = cfg["fps"]  # Use config fps — no artificial 10fps cap (USB 3.0 can handle it)
-    video_size = cfg["resolution"]  # Keep native resolution, no downscale needed
+    actual_fps = cfg["fps"]
+    video_size = cfg["resolution"]
     try:
         r = subprocess.run(["ffmpeg", "-y", "-t", "1",
                            "-f", "v4l2", "-i", cfg["video_dev"],
                            "-f", "null", "-"],
                           capture_output=True, text=True, timeout=5)
-        app.logger.info(f"[input_detect] stderr: {r.stderr[:500]}")
+        app.logger.info(f"[input_detect] stderr: {r.stderr[:800]}")
         if "rawvideo" in r.stderr:
-            input_fmt = None  # Auto-detect (YUY2)
+            input_fmt = None
         elif "mjpeg" in r.stderr:
             input_fmt = "mjpeg"
         import re
@@ -159,6 +159,15 @@ def make_ffmpeg_cmd():
             if detected_fps < actual_fps:
                 actual_fps = int(detected_fps)
                 app.logger.info(f"[input_detect] Detected FPS {detected_fps}, using {actual_fps}")
+        # Extract actual input resolution from ffmpeg probe output
+        # Format: "Stream #0:0: Video: ... WxH ..." or "Input #0, v4l2: ... WxH ..."
+        res_match = re.search(r"(\d+)x(\d+)", r.stderr)
+        if res_match:
+            detected_w, detected_h = int(res_match.group(1)), int(res_match.group(2))
+            config_w, config_h = map(int, video_size.split("x"))
+            if (detected_w, detected_h) != (config_w, config_h):
+                app.logger.warning(f"[input_detect] Input is {detected_w}x{detected_h}, config says {config_w}x{config_h}. Using native input resolution.")
+                video_size = f"{detected_w}x{detected_h}"
         app.logger.info(f"[input_detect] Using input_fmt={input_fmt}, fps={actual_fps}, resolution={video_size}")
     except Exception as e:
         app.logger.warning(f"[input_detect] Failed: {e}")
@@ -171,9 +180,13 @@ def make_ffmpeg_cmd():
     if audio_device:
         cmd += ["-thread_queue_size", "64", "-f", "alsa", "-i", audio_device]
 
-    # ── Step 2: No scale filter — use native resolution
-    # Remove scale to avoid aspect ratio distortion
-    # If MS2130 outputs non-16:9, we'll see it and adjust
+    # ── Step 2: Scale to target resolution while preserving aspect ratio ──
+    # Use filter_complex for multi-input commands (video + audio)
+    target_w, target_h = map(int, cfg["resolution"].split("x"))
+    cmd += [
+        "-filter_complex", f"[0:v]scale={target_w}:{target_h}:flags=bilinear[vid]",
+        "-map", "[vid]",
+    ]
 
     active = [ch for ch, info in channels.items() if info["enabled"]]
     n = len(active)
