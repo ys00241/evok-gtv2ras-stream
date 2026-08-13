@@ -166,20 +166,23 @@ def make_ffmpeg_cmd():
         app.logger.info(f"[input_detect] Using input_fmt={input_fmt}, fps={actual_fps}")
     except Exception as e:
         app.logger.warning(f"[input_detect] Failed: {e}")
+    # ── Step 1: collect ALL inputs FIRST (global options must come after all -i) ──
     cmd = ["ffmpeg", "-y",
            "-f", "v4l2",
            "-thread_queue_size", "64",
            "-framerate", str(actual_fps),
            "-i", cfg["video_dev"]]
     if audio_device:
-        # Use filter_complex to avoid ambiguity with multi-input commands
-        # [0:v] = video stream from /dev/video0, [1:a] = audio from alsa
+        cmd += ["-thread_queue_size", "64", "-f", "alsa", "-i", audio_device]
+
+    # ── Step 2: filter_complex + map (global, after all inputs) ──
+    if audio_device:
+        # Multi-input: filter_complex references [0:v] and [1:a]
         cmd += ["-filter_complex", "[0:v]scale=640:480:flags=bilinear[vid]",
                 "-map", "[vid]",
-                "-thread_queue_size", "64", "-f", "alsa", "-i", audio_device,
                 "-map", "1:a"]
     else:
-        # No audio: apply scale directly to video stream
+        # Single input: -vf is unambiguous (only one input)
         cmd += ["-vf", "scale=640:480:flags=bilinear"]
 
     active = [ch for ch, info in channels.items() if info["enabled"]]
