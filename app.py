@@ -223,7 +223,7 @@ def make_ffmpeg_cmd():
                 "-avoid_negative_ts", "make_zero",
                 "-f", "hls", "-hls_time", str(stream_config["hls_time"]), "-hls_list_size", os.environ.get("HLS_LIST_SIZE", "10"),
                 "-hls_flags", "delete_segments+omit_endlist+append_list",
-                "-hls_segment_type", "mpegts",
+                "-hls_segment_type", "fmp4",
                 str(STREAM_DIR / "stream.m3u8")]
         app.logger.info(f"[stream] FFmpeg cmd: {' '.join(cmd)}")
         return cmd, "hls"
@@ -589,7 +589,7 @@ def serve_hls(filename):
     fp = STREAM_DIR / filename
     if not fp.exists():
         return jsonify({"error": "not found", "checked_path": str(fp), "stream_dir": str(STREAM_DIR)}), 404
-    ct = "video/mp2t"
+    ct = "video/mp4"
     if filename.endswith(".m3u8"):
         ct = "application/vnd.apple.mpegurl"
     return send_file(str(fp), mimetype=ct)

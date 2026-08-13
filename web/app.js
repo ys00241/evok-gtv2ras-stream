@@ -4,7 +4,6 @@ const API_BASE = '/api';
 let hlsPlayers = {};
 let pollInterval = null;
 let streamUrl = '';
-let manifestVersion = 0; // increment on stale playlist recovery
 
 // ─── Tab Navigation ───
 let playerInitialized = false;
@@ -81,18 +80,7 @@ function initPlayer(videoId, url) {
         console.warn('[hls] fatal error, trying recover...');
         switch (data.type) {
           case Hls.ErrorTypes.NETWORK_ERROR:
-            // levelLoadError / fragLoadError: m3u8 or segment 404 — stale cache
-            // destroy player and rebuild with fresh manifestVersion to force re-fetch
-            if (data.details === 'levelLoadError' || data.details === 'fragLoadError') {
-              manifestVersion++;
-              const base = streamUrl.split('?')[0]; // strip any existing ?v= param
-              const freshUrl = `${base}?v=${manifestVersion}`;
-              console.warn(`[hls] stale manifest, rebuilding with v=${manifestVersion}`);
-              if (hlsPlayers[videoId]) { hlsPlayers[videoId].destroy(); delete hlsPlayers[videoId]; }
-              initPlayer(videoId, freshUrl);
-            } else {
-              hls.startLoad();
-            }
+            hls.startLoad();
             break;
           case Hls.ErrorTypes.MEDIA_ERROR:
             console.warn('[hls] media error, recovering');
@@ -197,7 +185,7 @@ async function loadCCStatus() {
 
 async function loadStreamUrl() {
   const base = window.location.host;
-  streamUrl = `http://${base}/hls/stream.m3u8?v=${manifestVersion}`;
+  streamUrl = `http://${base}/hls/stream.m3u8`;
   document.getElementById('streamUrl').textContent = streamUrl;
   initPlayer('playerVideo', streamUrl);
   const ev = document.getElementById('expandVideo');
