@@ -517,11 +517,23 @@ def record_download(filename):
 
 
 # ── HLS segments ──
+@app.route("/api/debug/hls")
+def debug_hls():
+    import os
+    files = []
+    try:
+        for f in sorted(os.listdir(str(STREAM_DIR))):
+            fp = STREAM_DIR / f
+            files.append({"name": f, "size": fp.stat().st_size if fp.is_file() else "dir", "exists": fp.exists()})
+    except Exception as e:
+        return jsonify({"error": str(e), "stream_dir": str(STREAM_DIR), "stream_dir_exists": STREAM_DIR.exists()})
+    return jsonify({"stream_dir": str(STREAM_DIR), "files": files[-20:]})
+
 @app.route("/hls/<path:filename>")
 def serve_hls(filename):
     fp = STREAM_DIR / filename
     if not fp.exists():
-        return jsonify({"error": "not found"}), 404
+        return jsonify({"error": "not found", "checked_path": str(fp), "stream_dir": str(STREAM_DIR)}), 404
     ct = "video/mp2t"
     if filename.endswith(".m3u8"):
         ct = "application/vnd.apple.mpegurl"
