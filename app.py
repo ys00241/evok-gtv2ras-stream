@@ -647,7 +647,17 @@ def cc_screenshot():
 # ── Web UI (catch-all) ──
 @app.route("/")
 def serve_index():
-    return send_from_directory(str(WEB_UI_DIR), "index.html")
+    html = (WEB_UI_DIR / "index.html").read_text()
+    # Inject cache-busting version to prevent TV browsers from serving stale JS
+    try:
+        v = subprocess.check_output(["git", "rev-parse", "--short", "HEAD"],
+                                    cwd=str(WEB_UI_DIR.parent), text=True, timeout=2).strip()
+    except Exception:
+        v = datetime.now().strftime("%Y%m%d%H%M")
+    html = html.replace('src="app.js"', f'src="app.js?v={v}"')
+    html = html.replace('src="hls.min.js"', f'src="hls.min.js?v={v}"')
+    html = html.replace('href="style.css"', f'href="style.css?v={v}"')
+    return html
 
 
 @app.route("/<path:filename>")
