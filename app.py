@@ -38,6 +38,7 @@ stream_config = {
     "resolution": "1280x720", "fps": 30, "bitrate": "4M",
     "hw_encoder": os.environ.get("HW_ENCODER", "libx264"),
     "video_dev": os.environ.get("VIDEO_DEV", "/dev/video0"),
+    "hls_time": int(os.environ.get("HLS_TIME", "1")),  # 1s segments for low latency
 }
 
 # ─── Chromecast ADB Config ───
@@ -136,16 +137,10 @@ def make_ffmpeg_cmd():
     /dev/video0 can only be opened once — everything must be in one process."""
     cfg = stream_config
     audio_device = detect_audio_device()
-    # Auto-detect input format and FPS (MS2130 outputs rawvideo YUY2 at 10fps max)
-    # FIX: Reduce thread_queue_size to prevent USB buffer overflow
-    # FIX: Use lower resolution (640x480) for stable USB transfer
+    # Auto-detect input format and FPS from capture device
     input_fmt = None
-    actual_fps = min(cfg["fps"], 10)  # MS2130 max is 10fps
-    video_size = cfg["resolution"]
-    # Downscale to 640x480 if original is 1280x720 to reduce USB bandwidth
-    if video_size == "1280x720":
-        video_size = "640x480"
-        app.logger.info("[input] Downscaling to 640x480 for USB stability")
+    actual_fps = cfg["fps"]  # Use config fps — no artificial 10fps cap (USB 3.0 can handle it)
+    video_size = cfg["resolution"]  # Keep native resolution, no downscale needed
     try:
         r = subprocess.run(["ffmpeg", "-y", "-t", "1",
                            "-f", "v4l2", "-i", cfg["video_dev"],
@@ -163,7 +158,7 @@ def make_ffmpeg_cmd():
             if detected_fps < actual_fps:
                 actual_fps = int(detected_fps)
                 app.logger.info(f"[input_detect] Detected FPS {detected_fps}, using {actual_fps}")
-        app.logger.info(f"[input_detect] Using input_fmt={input_fmt}, fps={actual_fps}")
+        app.logger.info(f"[input_detect] Using input_fmt={input_fmt}, fps={actual_fps}, resolution={video_size}")
     except Exception as e:
         app.logger.warning(f"[input_detect] Failed: {e}")
     # ── Step 1: collect ALL inputs FIRST (global options must come after all -i) ──
@@ -175,15 +170,7 @@ def make_ffmpeg_cmd():
     if audio_device:
         cmd += ["-thread_queue_size", "64", "-f", "alsa", "-i", audio_device]
 
-    # ── Step 2: filter_complex + map (global, after all inputs) ──
-    if audio_device:
-        # Multi-input: filter_complex references [0:v] and [1:a]
-        cmd += ["-filter_complex", "[0:v]scale=640:480:flags=bilinear[vid]",
-                "-map", "[vid]",
-                "-map", "1:a"]
-    else:
-        # Single input: -vf is unambiguous (only one input)
-        cmd += ["-vf", "scale=640:480:flags=bilinear"]
+    # ── Step 2: No scale filter — use native resolution for correct aspect ratio ──
 
     active = [ch for ch, info in channels.items() if info["enabled"]]
     n = len(active)
@@ -201,7 +188,7 @@ def make_ffmpeg_cmd():
         # Output options AFTER encoder flags
         cmd += ["-muxdelay", "0",
                 "-avoid_negative_ts", "make_zero",
-                "-f", "hls", "-hls_time", "2", "-hls_list_size", "3",
+                "-f", "hls", "-hls_time", str(stream_config["hls_time"]), "-hls_list_size", "3",
                 "-hls_flags", "delete_segments+omit_endlist+append_list",
                 "-hls_segment_type", "mpegts",
                 str(STREAM_DIR / "stream.m3u8")]

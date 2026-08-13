@@ -28,6 +28,7 @@ services:
       - PORT=6489
       # Low-latency tuning
       - HLS_LIST_SIZE=3
+      - HLS_TIME=1
       - THREAD_QUEUE_VIDEO=2048
       - THREAD_QUEUE_AUDIO=1024
       - ENCODER_PRESET=ultrafast
