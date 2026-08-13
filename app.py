@@ -189,11 +189,11 @@ def make_ffmpeg_cmd():
     # ── Step 1: collect ALL inputs FIRST (global options must come after all -i) ──
     cmd = ["ffmpeg", "-y",
            "-f", "v4l2",
-           "-thread_queue_size", "64",
+           "-thread_queue_size", os.environ.get("THREAD_QUEUE_VIDEO", "2048"),
            "-framerate", str(actual_fps),
            "-i", cfg["video_dev"]]
     if audio_device:
-        cmd += ["-thread_queue_size", "64", "-f", "alsa", "-i", audio_device]
+        cmd += ["-thread_queue_size", os.environ.get("THREAD_QUEUE_AUDIO", "1024"), "-f", "alsa", "-i", audio_device]
 
     # ── Step 2: Scale to target resolution while preserving aspect ratio ──
     # Use filter_complex for multi-input commands (video + audio)
