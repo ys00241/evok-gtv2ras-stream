@@ -318,7 +318,22 @@ def _start_stream(suppress_watchdog=False):
         time.sleep(1.5)
         if ffmpeg_proc is not None and ffmpeg_proc.poll() is not None:
             app.logger.error(f"[stream] ffmpeg died. exit={ffmpeg_proc.returncode}")
-            return {"status": "error", "message": f"ffmpeg exit code {ffmpeg_proc.returncode}"}
+            # Read last few lines of ffmpeg log to get actual error
+            log_path = STREAM_DIR / "logs" / "stream.log"
+            stderr_hint = ""
+            if log_path.exists():
+                try:
+                    lines = log_path.read_text().splitlines()
+                    # Get lines after the last "--- [stream] ---" marker
+                    cutoff = max((i for i, l in enumerate(lines) if "--- [stream] " in l), default=0)
+                    tail = [l for l in lines[cutoff:] if l.strip()]
+                    stderr_hint = "\n".join(tail[-15:])
+                except Exception:
+                    pass
+            msg = f"ffmpeg exit code {ffmpeg_proc.returncode}"
+            if stderr_hint:
+                msg += f"\n--- ffmpeg stderr ---\n{stderr_hint}"
+            return {"status": "error", "message": msg}
         # Launch watchdog thread (unless suppressed, e.g. from watchdog auto-restart)
         if not suppress_watchdog and not watchdog_active:
             watchdog_active = True
