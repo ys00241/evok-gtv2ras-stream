@@ -129,7 +129,8 @@ def encoder_flags(encoder, bitrate, low_latency=True, filter_already_applied=Fal
         # v4l2m2m (bcm2835-codec) — hardware encoder, limited flag support
         # DO NOT use -g (GOP) — bcm2835-codec rejects it → "Failed to set gop size: Invalid argument"
         # DO NOT use -use_wallclock_as_timestamps — corrupts H.264 bitstream
-        flags = ["-c:v", encoder, "-b:v", bitrate, "-pix_fmt", "nv12", "-flush_packets", "1"]
+        # Add -bf 0 to disable B-frames (v4l2m2m has PTS issues with B-frames)
+        flags = ["-c:v", encoder, "-b:v", bitrate, "-pix_fmt", "nv12", "-flush_packets", "1", "-bf", "0"]
     return flags
 
 def make_ffmpeg_cmd():
