@@ -191,6 +191,7 @@ def make_ffmpeg_cmd():
            "-f", "v4l2",
            "-thread_queue_size", os.environ.get("THREAD_QUEUE_VIDEO", "2048"),
            "-framerate", str(actual_fps),
+           "-err_detect", "ignore_err",  # Skip corrupted V4L2 frames
            "-i", cfg["video_dev"]]
     if audio_device:
         cmd += ["-thread_queue_size", os.environ.get("THREAD_QUEUE_AUDIO", "1024"), "-f", "alsa", "-i", audio_device]
