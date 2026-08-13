@@ -85,7 +85,8 @@ function initPlayer(videoId, url) {
             // destroy player and rebuild with fresh manifestVersion to force re-fetch
             if (data.details === 'levelLoadError' || data.details === 'fragLoadError') {
               manifestVersion++;
-              const freshUrl = `${streamUrl}?v=${manifestVersion}`;
+              const base = streamUrl.split('?')[0]; // strip any existing ?v= param
+              const freshUrl = `${base}?v=${manifestVersion}`;
               console.warn(`[hls] stale manifest, rebuilding with v=${manifestVersion}`);
               if (hlsPlayers[videoId]) { hlsPlayers[videoId].destroy(); delete hlsPlayers[videoId]; }
               initPlayer(videoId, freshUrl);
