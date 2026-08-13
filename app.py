@@ -38,7 +38,8 @@ stream_config = {
     "resolution": "1280x720", "fps": 30, "bitrate": "4M",
     "hw_encoder": os.environ.get("HW_ENCODER", "libx264"),
     "video_dev": os.environ.get("VIDEO_DEV", "/dev/video0"),
-
+    "hls_time": float(os.environ.get("HLS_TIME", "2")),
+    "hls_list_size": int(os.environ.get("HLS_LIST_SIZE", "3")),
 }
 
 # ─── Chromecast ADB Config ───
@@ -127,10 +128,8 @@ def encoder_flags(encoder, bitrate, low_latency=True, filter_already_applied=Fal
             flags += ["-preset", "veryfast", "-pix_fmt", "yuv420p"]
     else:
         # v4l2m2m (bcm2835-codec) — hardware encoder, limited flag support
-        # Use NV12 directly — avoids -vf filter issues with V4L2 M2M
+        # NOTE: -g (GOP) is NOT supported by h264_v4l2m2m — hardware fixes its own GOP
         flags = ["-c:v", encoder, "-b:v", bitrate, "-pix_fmt", "nv12"]
-        if low_latency:
-            flags += ["-g", "30"]
         flags += ["-flush_packets", "1"]
     return flags
 
@@ -187,7 +186,7 @@ def make_ffmpeg_cmd():
         # Output options AFTER encoder flags
         cmd += ["-muxdelay", "0",
                 "-avoid_negative_ts", "make_zero",
-                "-f", "hls", "-hls_time", "0.5", "-hls_list_size", "3",
+                "-f", "hls", "-hls_time", str(cfg["hls_time"]), "-hls_list_size", str(cfg["hls_list_size"]),
                 "-hls_flags", "delete_segments+omit_endlist+append_list",
                 "-hls_segment_type", "mpegts",
                 str(STREAM_DIR / "stream.m3u8")]
