@@ -35,7 +35,7 @@ ffmpeg_proc = None
 record_proc = None
 
 stream_config = {
-    "resolution": "1280x720", "fps": 30, "bitrate": "4M",
+    "resolution": "1920x1080", "fps": 30, "bitrate": "6M",
     "hw_encoder": os.environ.get("HW_ENCODER", "libx264"),
     "video_dev": os.environ.get("VIDEO_DEV", "/dev/video0"),
     "hls_time": int(os.environ.get("HLS_TIME", "1")),  # 1s segments for low latency
