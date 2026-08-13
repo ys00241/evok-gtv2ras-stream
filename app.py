@@ -201,6 +201,7 @@ def make_ffmpeg_cmd():
     cmd += [
         "-filter_complex", f"[0:v]scale={target_w}:{target_h}:flags=bilinear[vid]",
         "-map", "[vid]",
+        "-map", "1:a",
     ]
 
     active = [ch for ch, info in channels.items() if info["enabled"]]
