@@ -27,13 +27,11 @@ services:
       - HW_ENCODER=h264_v4l2m2m
       - PORT=6489
       # Low-latency tuning
-      - HLS_TIME=2
       - HLS_LIST_SIZE=3
       - THREAD_QUEUE_VIDEO=2048
       - THREAD_QUEUE_AUDIO=1024
       - ENCODER_PRESET=ultrafast
       - ENCODER_TUNE=zerolatency
-      - GOP_SIZE=30
       - BF_FRAMES=0
     command: ["python", "app.py"]
     restart: unless-stopped

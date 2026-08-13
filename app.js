@@ -67,28 +67,17 @@ function initPlayer(videoId, url) {
     hls.attachMedia(video);
     // Error handling
     hls.on(Hls.Events.ERROR, (event, data) => {
-      console.error('[hls] error:', JSON.stringify({
-        type: event,
-        details: data.details,
-        fatal: data.fatal,
-        errorType: data.type,
-        errorMsg: data.details || data.text,
-        innerType: data.innerType,
-        errorStatus: data.error?.status,
-      }));
+      console.error('[hls] error:', event, data);
       if (data.fatal) {
         console.warn('[hls] fatal error, trying recover...');
         switch (data.type) {
           case Hls.ErrorTypes.NETWORK_ERROR:
-            console.warn('[hls] network error, restarting load');
             hls.startLoad();
             break;
           case Hls.ErrorTypes.MEDIA_ERROR:
-            console.warn('[hls] media error, recovering');
             hls.recoverMediaError();
             break;
           default:
-            console.error('[hls] unhandled fatal error, destroying');
             hls.destroy();
             break;
         }

@@ -38,8 +38,6 @@ stream_config = {
     "resolution": "1280x720", "fps": 30, "bitrate": "4M",
     "hw_encoder": os.environ.get("HW_ENCODER", "libx264"),
     "video_dev": os.environ.get("VIDEO_DEV", "/dev/video0"),
-    "hls_time": float(os.environ.get("HLS_TIME", "2")),
-    "hls_list_size": int(os.environ.get("HLS_LIST_SIZE", "3")),
 }
 
 # ─── Chromecast ADB Config ───
@@ -128,9 +126,9 @@ def encoder_flags(encoder, bitrate, low_latency=True, filter_already_applied=Fal
             flags += ["-preset", "veryfast", "-pix_fmt", "yuv420p"]
     else:
         # v4l2m2m (bcm2835-codec) — hardware encoder, limited flag support
-        # NOTE: -g (GOP) is NOT supported by h264_v4l2m2m — hardware fixes its own GOP
-        flags = ["-c:v", encoder, "-b:v", bitrate, "-pix_fmt", "nv12"]
-        flags += ["-flush_packets", "1"]
+        # DO NOT use -g (GOP) — bcm2835-codec rejects it → "Failed to set gop size: Invalid argument"
+        # DO NOT use -use_wallclock_as_timestamps — corrupts H.264 bitstream
+        flags = ["-c:v", encoder, "-b:v", bitrate, "-pix_fmt", "nv12", "-flush_packets", "1"]
     return flags
 
 def make_ffmpeg_cmd():
@@ -139,8 +137,15 @@ def make_ffmpeg_cmd():
     cfg = stream_config
     audio_device = detect_audio_device()
     # Auto-detect input format and FPS (MS2130 outputs rawvideo YUY2 at 10fps max)
+    # FIX: Reduce thread_queue_size to prevent USB buffer overflow
+    # FIX: Use lower resolution (640x480) for stable USB transfer
     input_fmt = None
-    actual_fps = cfg["fps"]
+    actual_fps = min(cfg["fps"], 10)  # MS2130 max is 10fps
+    video_size = cfg["resolution"]
+    # Downscale to 640x480 if original is 1280x720 to reduce USB bandwidth
+    if video_size == "1280x720":
+        video_size = "640x480"
+        app.logger.info("[input] Downscaling to 640x480 for USB stability")
     try:
         r = subprocess.run(["ffmpeg", "-y", "-t", "1",
                            "-f", "v4l2", "-i", cfg["video_dev"],
@@ -162,13 +167,13 @@ def make_ffmpeg_cmd():
     except Exception as e:
         app.logger.warning(f"[input_detect] Failed: {e}")
     cmd = ["ffmpeg", "-y",
-           "-f", "v4l2"]
-    if input_fmt:
-        cmd += ["-input_format", input_fmt]
-    cmd += ["-framerate", str(actual_fps), "-video_size", cfg["resolution"],
-           "-i", cfg["video_dev"]]
+           "-f", "v4l2",
+           "-thread_queue_size", "64",  # Reduce from 2048 to prevent USB buffer overflow
+           "-framerate", str(actual_fps),
+           "-i", cfg["video_dev"],
+           "-vf", "scale=640:480:flags=bilinear"]
     if audio_device:
-        cmd += ["-thread_queue_size", "1024", "-f", "alsa", "-i", audio_device]
+        cmd += ["-thread_queue_size", "64", "-f", "alsa", "-i", audio_device]
 
     active = [ch for ch, info in channels.items() if info["enabled"]]
     n = len(active)
@@ -186,7 +191,7 @@ def make_ffmpeg_cmd():
         # Output options AFTER encoder flags
         cmd += ["-muxdelay", "0",
                 "-avoid_negative_ts", "make_zero",
-                "-f", "hls", "-hls_time", str(cfg["hls_time"]), "-hls_list_size", str(cfg["hls_list_size"]),
+                "-f", "hls", "-hls_time", "2", "-hls_list_size", "3",
                 "-hls_flags", "delete_segments+omit_endlist+append_list",
                 "-hls_segment_type", "mpegts",
                 str(STREAM_DIR / "stream.m3u8")]
@@ -437,15 +442,9 @@ def record_start():
     od = Path(rc["output_dir"])
     od.mkdir(parents=True, exist_ok=True)
     cmd = ["ffmpeg", "-y",
-           "-fflags", "nobuffer+discardcorrupt+genpts",
-           "-flags", "low_delay",
-           "-muxdelay", "0",
-           "-avoid_negative_ts", "make_zero",
-           "-thread_queue_size", "2048",
-           "-f", "v4l2", "-input_format", "mjpeg",
+           "-f", "v4l2",
            "-framerate", str(fps), "-video_size", res,
-           "-i", stream_config["video_dev"], *encoder_flags(stream_config["hw_encoder"], "4M", low_latency=True),
-           "-use_wallclock_as_timestamps", "1"]
+           "-i", stream_config["video_dev"], *encoder_flags(stream_config["hw_encoder"], "4M", low_latency=True)]
     if rc["mode"] == "segment":
         cmd += ["-f", "segment", "-segment_time", str(rc["segment_seconds"]),
                 "-reset_timestamps", "1", "-strftime", "1",
