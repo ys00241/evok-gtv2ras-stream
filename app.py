@@ -82,25 +82,40 @@ def detect_audio_device():
     # 2. Auto-detect from arecord -l
     try:
         r = subprocess.run(["arecord", "-l"], capture_output=True, text=True, timeout=2)
+        app.logger.info(f"[audio] arecord -l output:\n{r.stdout}")
         for line in r.stdout.split("\n"):
-            if "MS2109" in line or "MS2130" in line or "USB Audio" in line:
+            if "MS2109" in line or "MS2130" in line or "USB Audio" in line or "USB" in line:
                 m = re.search(r"card (\d+):", line)
                 if m:
                     dev = f"hw:{m.group(1)},0"
                     app.logger.info(f"[audio] Auto-detected: {dev}")
                     return dev
+    except Exception as e:
+        app.logger.warning(f"[audio] arecord -l failed: {e}")
+
+    # 3. Try hw:3,0 as default for RPi MS2130 (common position)
+    try:
+        r = subprocess.run(
+            ["arecord", "-D", "hw:3,0", "-d", "1", "-f", "S16_LE", "-r", "48000", "-c", "2", "/dev/null"],
+            capture_output=True, timeout=3)
+        if r.returncode == 0:
+            app.logger.info("[audio] Using default hw:3,0")
+            return "hw:3,0"
     except Exception:
         pass
 
-    # 3. Fallback: try any ALSA capture device
+    # 4. List all cards via cat /proc/asound/cards
     try:
-        r = subprocess.run(["arecord", "-l"], capture_output=True, text=True, timeout=2)
+        r = subprocess.run(["cat", "/proc/asound/cards"], capture_output=True, text=True, timeout=2)
+        app.logger.info(f"[audio] /proc/asound/cards:\n{r.stdout}")
+        # Look for USB audio devices
         for line in r.stdout.split("\n"):
-            m = re.search(r"card (\d+):.*\n.*  device (\d+):", line)
-            if m:
-                dev = f"hw:{m.group(1)},{m.group(2)}"
-                app.logger.info(f"[audio] Fallback detected: {dev}")
-                return dev
+            if "USB" in line or "MS21" in line:
+                m = re.search(r"\s+(\d+)", line)
+                if m:
+                    dev = f"hw:{m.group(1)},0"
+                    app.logger.info(f"[audio] Detected USB audio card: {dev}")
+                    return dev
     except Exception:
         pass
 
@@ -541,6 +556,31 @@ def debug_hls():
     except Exception as e:
         return jsonify({"error": str(e), "stream_dir": str(STREAM_DIR), "stream_dir_exists": STREAM_DIR.exists()})
     return jsonify({"stream_dir": str(STREAM_DIR), "files": files[-20:]})
+
+@app.route("/api/debug/audio")
+def debug_audio():
+    """Test audio device detection and return info."""
+    import subprocess
+    result = {
+        "env_audio_dev": os.environ.get("AUDIO_DEV", ""),
+        "arecord_l": "",
+        "proc_cards": "",
+        "detected_device": None
+    }
+    try:
+        r = subprocess.run(["arecord", "-l"], capture_output=True, text=True, timeout=2)
+        result["arecord_l"] = r.stdout or r.stderr
+    except Exception as e:
+        result["arecord_l"] = f"error: {e}"
+    try:
+        r = subprocess.run(["cat", "/proc/asound/cards"], capture_output=True, text=True, timeout=2)
+        result["proc_cards"] = r.stdout or r.stderr
+    except Exception as e:
+        result["proc_cards"] = f"error: {e}"
+    # Try detection
+    dev = detect_audio_device()
+    result["detected_device"] = dev
+    return jsonify(result)
 
 @app.route("/hls/<path:filename>")
 def serve_hls(filename):
