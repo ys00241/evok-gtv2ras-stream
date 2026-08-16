@@ -166,21 +166,53 @@ async function loadChannels() {
 }
 
 async function loadCCStatus() {
-  const data = await api('GET', '/cc/status');
+  // Poll keepalive endpoint every 5s for live connection state
+  setInterval(async () => {
+    try {
+      const r = await api('GET', '/cc/keepalive');
+      updateCCIndicator(r);
+    } catch(e) {}
+  }, 5000);
+  // Initial check
+  try {
+    const r = await api('GET', '/cc/keepalive');
+    updateCCIndicator(r);
+  } catch(e) {}
+}
+
+function updateCCIndicator(data) {
   const el = document.getElementById('ccConnected');
   if (!el) return;
-  if (data.cc_available === false || data.message === 'CC Remote service not deployed') {
-    const row = el.closest('.stat-row');
-    if (row) row.style.display = 'none';
-    return;
-  }
-  if (data.status === 'ok' && data.connected) {
-    el.textContent = `✅ ${data.host}`;
+  const row = el.closest('.stat-row');
+  if (!row) return;
+
+  if (data.connected) {
+    const ago = Math.round((Date.now() / 1000) - data.last_ping);
+    el.textContent = `✅ ${data.host} (${ago}s ago)`;
     el.className = 'badge badge-on';
+    row.style.display = '';
+    setCCButtonsEnabled(true);
+  } else if (data.reconnecting) {
+    el.textContent = '🔄 Reconnecting...';
+    el.className = 'badge badge-warn';
+    row.style.display = '';
+    setCCButtonsEnabled(false);
   } else {
     el.textContent = '❌ Disconnected';
     el.className = 'badge badge-off';
+    row.style.display = '';
+    setCCButtonsEnabled(false);
   }
+}
+
+function setCCButtonsEnabled(enabled) {
+  document.querySelectorAll('.btn-dpad, .btn-nav, .btn-vol, .btn-vol-mute, .btn-app').forEach(btn => {
+    btn.disabled = !enabled;
+    btn.style.opacity = enabled ? '' : '0.4';
+    btn.style.pointerEvents = enabled ? '' : 'none';
+  });
+  const textInput = document.getElementById('ccTextInput');
+  if (textInput) textInput.disabled = !enabled;
 }
 
 async function loadStreamUrl() {

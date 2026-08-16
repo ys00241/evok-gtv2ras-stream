@@ -604,19 +604,101 @@ def serve_recording(filename):
 
 
 # ═══════════════════════════════════════════
-# Chromecast ADB Remote
+# Chromecast ADB Remote — with keep-alive
 # ═══════════════════════════════════════════
-def adb_cmd(args, timeout=5):
+CC_CONNECTED = False
+CC_LAST_PING = 0.0
+CC_RECONNECTING = False
+
+
+def adb_cmd(args, timeout=5, reconnect_if_dead=False):
+    """ADB wrapper with optional auto-reconnect on dead connection."""
+    global CC_CONNECTED, CC_LAST_PING, CC_RECONNECTING
+
     if not CC_HOST:
         return False, "CC_HOST not configured"
+
+    # If connection is known dead and reconnect is enabled, try once
+    if reconnect_if_dead and not CC_CONNECTED:
+        CC_RECONNECTING = True
+        ok, out = _adb_try_reconnect()
+        CC_RECONNECTING = False
+        if not ok:
+            return False, f"reconnect failed: {out}"
+
     full_cmd = ["adb", "-s", f"{CC_HOST}:{ADB_PORT}"] + args
     try:
         r = subprocess.run(full_cmd, capture_output=True, text=True, timeout=timeout)
+        # On success, mark connected and update last ping
+        if r.returncode == 0:
+            CC_CONNECTED = True
+            CC_LAST_PING = time.time()
         return r.returncode == 0, r.stdout.strip()
     except subprocess.TimeoutExpired:
+        CC_CONNECTED = False
         return False, "adb timeout"
     except FileNotFoundError:
         return False, "adb not found"
+
+
+def _adb_try_reconnect():
+    """Try to reconnect to the ADB device. Returns (ok, message)."""
+    if not CC_HOST:
+        return False, "no host"
+    try:
+        r = subprocess.run(
+            ["adb", "connect", f"{CC_HOST}:{ADB_PORT}"],
+            capture_output=True, text=True, timeout=5
+        )
+        out = r.stdout.strip()
+        connected = "connected" in out or "already" in out
+        if connected:
+            CC_CONNECTED = True
+            CC_LAST_PING = time.time()
+        return connected, out
+    except subprocess.TimeoutExpired:
+        return False, "connect timeout"
+    except FileNotFoundError:
+        return False, "adb not found"
+
+
+def cc_keepalive():
+    """Background thread: ping ADB every 10s, auto-reconnect on disconnect."""
+    global CC_CONNECTED, CC_LAST_PING
+    app.logger.info("[cc] keep-alive thread started")
+    while True:
+        time.sleep(10)
+        if not CC_HOST:
+            continue
+        ok, _ = adb_cmd(["get-state"], timeout=3, reconnect_if_dead=True)
+        if ok:
+            CC_CONNECTED = True
+            CC_LAST_PING = time.time()
+            app.logger.debug("[cc] keep-alive OK")
+        else:
+            old = CC_CONNECTED
+            CC_CONNECTED = False
+            if old:
+                app.logger.warning("[cc] keep-alive FAILED — device may be asleep")
+            # Try explicit reconnect
+            if not CC_RECONNECTING:
+                _adb_try_reconnect()
+
+
+# Start keep-alive thread
+_thread = threading.Thread(target=cc_keepalive, daemon=True, name="cc-keepalive")
+_thread.start()
+
+
+@app.route("/api/cc/keepalive", methods=["GET"])
+def cc_keepalive_status():
+    """Frontend polls this every 5s for connection state."""
+    return jsonify({
+        "connected": CC_CONNECTED,
+        "last_ping": CC_LAST_PING,
+        "host": CC_HOST,
+        "reconnecting": CC_RECONNECTING,
+    })
 
 
 @app.route("/api/cc/connect", methods=["POST"])
@@ -652,7 +734,7 @@ def cc_nav(key):
     adb_key = KEY_MAP.get(key.lower())
     if not adb_key:
         return jsonify({"status": "error", "message": f"Unknown key: {key}"}), 400
-    ok, out = adb_cmd(["shell", "input", "keyevent", adb_key])
+    ok, out = adb_cmd(["shell", "input", "keyevent", adb_key], reconnect_if_dead=True)
     return jsonify({"status": "ok" if ok else "error"})
 
 
@@ -662,7 +744,7 @@ def cc_vol(action):
     adb_key = KEY_MAP.get(action.lower())
     if not adb_key:
         return jsonify({"status": "error", "message": f"Unknown action: {action}"}), 400
-    ok, out = adb_cmd(["shell", "input", "keyevent", adb_key])
+    ok, out = adb_cmd(["shell", "input", "keyevent", adb_key], reconnect_if_dead=True)
     return jsonify({"status": "ok" if ok else "error"})
 
 
@@ -679,7 +761,7 @@ def cc_launch_app(name):
     pkg = APPS.get(name.lower())
     if not pkg:
         return jsonify({"status": "error", "message": f"Unknown app: {name}"}), 400
-    ok, out = adb_cmd(["shell", "monkey", "-p", pkg, "1"])
+    ok, out = adb_cmd(["shell", "monkey", "-p", pkg, "1"], reconnect_if_dead=True)
     return jsonify({"status": "ok" if ok else "error", "message": f"Launched {name}" if ok else out})
 
 
@@ -689,17 +771,17 @@ def cc_text():
     text = data.get("text", "")
     if not text:
         return jsonify({"status": "error", "message": "No text"}), 400
-    ok, out = adb_cmd(["shell", "input", "text", text])
+    ok, out = adb_cmd(["shell", "input", "text", text], reconnect_if_dead=True)
     return jsonify({"status": "ok" if ok else "error"})
 
 
 @app.route("/api/cc/screenshot", methods=["GET"])
 def cc_screenshot():
     screenshot_path = SCR_DIR / "cc_screen.png"
-    ok, _ = adb_cmd(["shell", "screencap", "-p", "/sdcard/screen.png"])
+    ok, _ = adb_cmd(["shell", "screencap", "-p", "/sdcard/screen.png"], reconnect_if_dead=True)
     if not ok:
         return jsonify({"status": "error", "message": "screencap failed"}), 502
-    ok, _ = adb_cmd(["pull", "/sdcard/screen.png", str(screenshot_path)])
+    ok, _ = adb_cmd(["pull", "/sdcard/screen.png", str(screenshot_path)], reconnect_if_dead=True)
     if not ok:
         return jsonify({"status": "error", "message": "pull failed"}), 502
     if screenshot_path.exists():
